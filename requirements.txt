@@ -1,2 +1,10 @@
 Flask
-reportlab
+pandas
+numpy
+scipy
+flask
+flask-login
+dash
+plotly
+dash-bootstrap-components
+openpyxl
