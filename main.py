@@ -4,10 +4,11 @@ import numpy as np
 from datetime import datetime, timedelta
 from math import sqrt
 from scipy.stats import pearsonr, spearmanr, shapiro, t
-import threading
 import json
 import io
 import csv
+import sqlite3
+from contextlib import closing
 from flask import Flask, render_template_string, redirect, url_for, request, session, jsonify
 from flask_login import LoginManager, UserMixin, login_user, logout_user, login_required
 from dash import Dash, dcc, html, Input, Output, callback_context
@@ -15,20 +16,19 @@ import plotly.express as px
 import plotly.graph_objects as go
 import dash_bootstrap_components as dbc
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 # ==================== КОНФИГУРАЦИЯ ====================
 # ⚠️ ЗАМЕНИТЕ ПУТИ К ВАШИМ ФАЙЛАМ
 FILE_PATHS = {
-    'ЭОК 1': os.path.join(BASE_DIR, "logs_Python_науч_20240623-0236.xlsx"),
-    'ЭОК 2': os.path.join(BASE_DIR, "logs_Time_series _20240623-0046.xlsx"),
-    'ЭОК 3': os.path.join(BASE_DIR, "logs_РКИиП_ТВиМС_1_20240623-0235.xlsx"),
-    'ЭОК 4': os.path.join(BASE_DIR, "logs_ТВиМС_ИВТ_1_20240623-0234.xlsx"),
-    'ЭОК 5': os.path.join(BASE_DIR, "logs_БМ_ИБCDIO_20240623-0048.xlsx"),
-    'ЭОК 6': os.path.join(BASE_DIR, "logs_ВМ 1_20240623-0049.xlsx"),
-    'ЭОК 7': os.path.join(BASE_DIR, "logs_ВМ2_20240623-0049.xlsx"),
-    'ЭОК 8': os.path.join(BASE_DIR, "logs_ПАОС МЛиТА_20250305-1134.xlsx"),
-    'ЭОК 9': os.path.join(BASE_DIR, "logs_РКИиП_ТВиМС_1_20250305-1118k.xlsx"),
-    'ЭОК 10': os.path.join(BASE_DIR, "logs_ТВиМС_ИВТ_1_20250305-1119k.xlsx"),
+    'ЭОК 1': "C:/Users/Zver/Downloads/logs_Python_науч_20240623-0236.xlsx",
+    'ЭОК 2': "C:/Users/Zver/Downloads/logs_Time_series _20240623-0046.xlsx",
+    'ЭОК 3': "C:/Users/Zver/Downloads/logs_РКИиП_ТВиМС_1_20240623-0235.xlsx",
+    'ЭОК 4': "C:/Users/Zver/Downloads/logs_ТВиМС_ИВТ_1_20240623-0234.xlsx",
+    'ЭОК 5': "C:/Users/Zver/Downloads/logs_БМ_ИБCDIO_20240623-0048.xlsx",
+    'ЭОК 6': "C:/Users/Zver/Downloads/logs_ВМ 1_20240623-0049.xlsx",
+    'ЭОК 7': "C:/Users/Zver/Downloads/logs_ВМ2_20240623-0049.xlsx",
+    'ЭОК 8': "C:/Users/Zver/Downloads/logs_ПАОС МЛиТА_20250305-1134.xlsx",
+    'ЭОК 9': "C:/Users/Zver/Downloads/logs_РКИиП_ТВиМС_1_20250305-1118k.xlsx",
+    'ЭОК 10': "C:/Users/Zver/Downloads/logs_ТВиМС_ИВТ_1_20250305-1119k.xlsx",
 }
 
 # Списки студентов для курсов 9 и 10
@@ -140,31 +140,29 @@ GRAPH_STYLE = {
     'legend': {'orientation': 'h', 'y': -0.3, 'x': 0.5, 'xanchor': 'center'}
 }
 
-# ==================== ЦИФРОВОЙ СЛЕД (РАСШИРЕННЫЙ) ====================
-logs = []
-logs_lock = threading.Lock()
-LOG_FILE = 'digital_footprint.json'
+# ==================== БАЗА ДАННЫХ ДЛЯ ЛОГОВ ====================
+DB_PATH = 'digital_footprint.db'
 
-def save_logs_to_file():
-    try:
-        with open(LOG_FILE, 'w', encoding='utf-8') as f:
-            json.dump(logs, f, ensure_ascii=False, indent=2)
-    except Exception as e:
-        print(f"Ошибка сохранения логов: {e}")
-
-def load_logs_from_file():
-    global logs
-    try:
-        with open(LOG_FILE, 'r', encoding='utf-8') as f:
-            logs = json.load(f)
-            for log in logs:
-                if 'source' not in log:
-                    log['source'] = 'unknown'
-    except FileNotFoundError:
-        logs = []
-    except Exception as e:
-        print(f"Ошибка загрузки логов: {e}")
-        logs = []
+def init_db():
+    """Создаёт таблицу logs и индексы, если их нет"""
+    with sqlite3.connect(DB_PATH) as conn:
+        conn.execute('''
+            CREATE TABLE IF NOT EXISTS logs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp TEXT NOT NULL,
+                user TEXT NOT NULL,
+                action TEXT NOT NULL,
+                details TEXT,
+                error INTEGER DEFAULT 0,
+                ip TEXT,
+                user_agent TEXT,
+                source TEXT
+            )
+        ''')
+        conn.execute('CREATE INDEX IF NOT EXISTS idx_user ON logs(user)')
+        conn.execute('CREATE INDEX IF NOT EXISTS idx_timestamp ON logs(timestamp)')
+        conn.execute('CREATE INDEX IF NOT EXISTS idx_action ON logs(action)')
+        conn.execute('CREATE INDEX IF NOT EXISTS idx_error ON logs(error)')
 
 def get_request_client_info():
     from flask import request
@@ -176,8 +174,8 @@ def get_request_client_info():
         return 'N/A', 'N/A'
 
 def log_action(user, action, details, error=False, ip=None, user_agent=None, source=None):
+    """Записывает действие в базу данных SQLite"""
     if source is None:
-        # Определение источника из user_agent
         if user_agent and user_agent != 'N/A':
             ua_lower = user_agent.lower()
             if any(key in ua_lower for key in ['mobile', 'android', 'iphone', 'ipad', 'phone']):
@@ -186,20 +184,16 @@ def log_action(user, action, details, error=False, ip=None, user_agent=None, sou
                 source = 'web'
         else:
             source = 'unknown'
-    with logs_lock:
-        logs.append({
-            'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            'user': user,
-            'action': action,
-            'details': details,
-            'error': error,
-            'ip': ip or 'N/A',
-            'user_agent': user_agent or 'N/A',
-            'source': source
-        })
-        if len(logs) > 1000:
-            logs.pop(0)
-    save_logs_to_file()
+    try:
+        with sqlite3.connect(DB_PATH) as conn:
+            conn.execute(
+                '''INSERT INTO logs (timestamp, user, action, details, error, ip, user_agent, source)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)''',
+                (datetime.now().strftime("%Y-%m-%d %H:%M:%S"), user, action, details,
+                 1 if error else 0, ip or 'N/A', user_agent or 'N/A', source)
+            )
+    except Exception as e:
+        print(f"Ошибка записи лога в БД: {e}")
 
 # ==================== ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ====================
 def get_week_ranges_for_course(course_name):
@@ -383,7 +377,6 @@ def home_page(current_teacher):
                 html.A("Цифровой след", href="/dash/logs", style={'margin-left': '10px', 'color': 'white', 'backgroundColor': '#6f42c1', 'padding': '8px 12px', 'borderRadius': '5px', 'textDecoration': 'none'}) if current_teacher == 'Заведующий' else html.Div()
             ])
         ]),
-        # Для заведующего - выбор преподавателя, для преподавателя - пустой Div
         html.Div([
             html.Label("Выберите преподавателя:", style={'font-weight': 'bold', 'margin-top': '10px'}),
             dcc.Dropdown(id='head-teacher-select', options=[{'label': t, 'value': t} for t in teachers_list],
@@ -406,7 +399,6 @@ def home_page(current_teacher):
         dcc.Store(id='statist-weekly-sessions-store'),
         dcc.Store(id='statist-feedback-speed-store'),
         dcc.Store(id='statist-correlation-text'),
-        # Блок статистики
         html.Div(style={'margin-bottom': '20px'}, children=[
             html.H4("Статистика активности преподавателя в электронной среде:"),
             dbc.Row([
@@ -444,7 +436,6 @@ def home_page(current_teacher):
                                            html.Div(id='pedagogical-activity-description')]), width=8, style={'margin': '0 auto'})
             ]),
         ]),
-        # Все графики
         html.Div(style={'display': 'flex', 'flex-wrap': 'wrap', 'gap': '20px'}, children=[
             create_graph_with_tooltip('activity-graph', None, "Активность преподавателя по месяцам"),
             create_graph_with_tooltip('weekly-activity-graph', None, "Динамика активности преподавателя по неделям"),
@@ -480,7 +471,6 @@ def teacher_page(current_teacher):
                 html.A("Цифровой след", href="/dash/logs", style={'margin-left': '10px', 'color': 'white', 'backgroundColor': '#6f42c1', 'padding': '8px 12px', 'borderRadius': '5px', 'textDecoration': 'none'}) if current_teacher == 'Заведующий' else html.Div()
             ])
         ]),
-        # Для заведующего - выбор преподавателя, для преподавателя - пустой Div
         html.Div([
             html.Label("Выберите преподавателя:", style={'font-weight': 'bold', 'margin-top': '10px'}),
             dcc.Dropdown(id='head-teacher-select-page', options=[{'label': t, 'value': t} for t in teachers_list],
@@ -556,7 +546,10 @@ def digital_footprint_page():
             ], style={'margin-top': '10px'}),
             dcc.Download(id='download-csv')
         ], style={'margin-bottom': '20px', 'background': '#f8f9fa', 'padding': '15px', 'border-radius': '5px'}),
-        html.Div(id='logs-table-container')
+        html.Div(id='logs-table-container'),
+        dbc.Pagination(id='logs-pagination', max_value=1, first_last=True, previous_next=True, fully_expanded=False, active_page=1),
+        dcc.Store(id='logs-page', data=1),
+        dcc.Store(id='logs-total-pages', data=1)
     ])
 
 app.layout = html.Div([
@@ -685,7 +678,7 @@ def update_main_stats(selected_course, total_students, avg_teacher_weekly,
      Output('pedagogical-activity-level', 'children'),
      Output('pedagogical-activity-description', 'children')],
     [Input('course-dropdown', 'value'), Input('week-dropdown', 'value'), Input('selected-teacher', 'data'),
-     Input('current-teacher', 'data')]  # Добавлен current-teacher
+     Input('current-teacher', 'data')]
 )
 def update_main_graphs(selected_course, selected_week, teacher_name, current_user):
     ip, ua = get_request_client_info()
@@ -694,7 +687,6 @@ def update_main_graphs(selected_course, selected_week, teacher_name, current_use
             empty = go.Figure().update_layout(title="Нет данных для отображения")
             return [empty] * 13 + [0] * 7 + ["", "", ""]
 
-        # Логируем действие от имени текущего пользователя (заведующий или сам преподаватель)
         log_action(current_user, "Просмотр курса", f"Преподаватель: {teacher_name}, Курс: {selected_course}, неделя: {selected_week}", ip=ip, user_agent=ua)
 
         df = courses[selected_course].copy()
@@ -968,7 +960,7 @@ def update_main_graphs(selected_course, selected_week, teacher_name, current_use
     [Output('activity-graph-teacher', 'figure'), Output('weekly-activity-graph-teacher', 'figure'),
      Output('avg-activity-store', 'data'), Output('avg-student-activity-store', 'data')],
     [Input('semester-dropdown-teacher', 'value'), Input('selected-teacher-page', 'data'),
-     Input('current-teacher-teacher-page', 'data')]  # Добавлен current-teacher
+     Input('current-teacher-teacher-page', 'data')]
 )
 def update_teacher_dashboards(selected_semester, teacher_name, current_user):
     ip, ua = get_request_client_info()
@@ -1080,14 +1072,13 @@ def toggle_panels(info_clicks, dashboard_clicks):
 @app.callback(
     Output('teacher-info-panel', 'children'),
     [Input('selected-teacher-page', 'data'), Input('avg-activity-store', 'data'),
-     Input('avg-student-activity-store', 'data'), Input('current-teacher-teacher-page', 'data')]  # Добавлен current-teacher
+     Input('avg-student-activity-store', 'data'), Input('current-teacher-teacher-page', 'data')]
 )
 def update_teacher_info(teacher_name, avg_teacher, avg_student, current_user):
     ip, ua = get_request_client_info()
     try:
         if not teacher_name:
             return html.Div("Нет данных")
-        # Логируем просмотр информации
         log_action(current_user, "Просмотр информации преподавателя", f"Преподаватель: {teacher_name}", ip=ip, user_agent=ua)
 
         teacher_info = {
@@ -1202,74 +1193,146 @@ def update_teacher_stats(teacher_name, semester, avg_teacher, avg_student):
 @app.callback(
     [Output('logs-table-container', 'children'),
      Output('filter-user', 'options'),
-     Output('filter-user', 'value')],
+     Output('logs-pagination', 'max_value'),
+     Output('logs-total-pages', 'data'),
+     Output('logs-page', 'data')],
     [Input('filter-user', 'value'),
      Input('filter-action', 'value'),
      Input('filter-date-range', 'start_date'),
      Input('filter-date-range', 'end_date'),
-     Input('reset-filters', 'n_clicks')]
+     Input('reset-filters', 'n_clicks'),
+     Input('logs-pagination', 'active_page'),
+     Input('logs-page', 'data')],
+    prevent_initial_call=False  # можно явно указать False, но это и так по умолчанию
 )
-def update_logs_table(selected_user, action_contains, start_date, end_date, reset_clicks):
+def update_logs_table(selected_user, action_contains, start_date, end_date, reset_clicks, active_page, current_page):
     ctx = callback_context
-    if ctx.triggered and ctx.triggered[0]['prop_id'] == 'reset-filters.n_clicks':
-        selected_user = None
-        action_contains = ''
-        start_date = None
-        end_date = None
+    # Если это первый запуск (нет триггера), устанавливаем страницу 1
+    if not ctx.triggered:
+        page = 1
+    else:
+        # Сброс фильтров
+        if ctx.triggered[0]['prop_id'] == 'reset-filters.n_clicks':
+            selected_user = None
+            action_contains = ''
+            start_date = None
+            end_date = None
+            active_page = 1
+        # Определяем номер страницы: active_page может быть None, тогда берём current_page (из Store)
+        page = active_page if active_page is not None else current_page
+        page = page if page else 1
 
-    filtered = logs.copy()
+    per_page = 50
+
+    # Формируем SQL запросы
+    query = "SELECT * FROM logs WHERE 1=1"
+    count_query = "SELECT COUNT(*) FROM logs WHERE 1=1"
+    params = []
+
     if selected_user:
-        filtered = [l for l in filtered if l['user'] == selected_user]
+        query += " AND user = ?"
+        count_query += " AND user = ?"
+        params.append(selected_user)
     if action_contains:
-        filtered = [l for l in filtered if action_contains.lower() in l['action'].lower() or action_contains.lower() in l['details'].lower()]
+        like_pattern = f"%{action_contains}%"
+        query += " AND (action LIKE ? OR details LIKE ?)"
+        count_query += " AND (action LIKE ? OR details LIKE ?)"
+        params.extend([like_pattern, like_pattern])
     if start_date:
-        start_ts = datetime.strptime(start_date, '%Y-%m-%d')
-        filtered = [l for l in filtered if datetime.strptime(l['timestamp'], '%Y-%m-%d %H:%M:%S') >= start_ts]
+        start_ts = start_date + " 00:00:00"
+        query += " AND timestamp >= ?"
+        count_query += " AND timestamp >= ?"
+        params.append(start_ts)
     if end_date:
-        end_ts = datetime.strptime(end_date, '%Y-%m-%d') + timedelta(days=1)
-        filtered = [l for l in filtered if datetime.strptime(l['timestamp'], '%Y-%m-%d %H:%M:%S') <= end_ts]
+        end_ts = end_date + " 23:59:59"
+        query += " AND timestamp <= ?"
+        count_query += " AND timestamp <= ?"
+        params.append(end_ts)
 
-    users = sorted(set(l['user'] for l in logs))
+    with sqlite3.connect(DB_PATH) as conn:
+        total = conn.execute(count_query, params).fetchone()[0]
+    total_pages = (total + per_page - 1) // per_page if total > 0 else 1
+    if page > total_pages:
+        page = total_pages
+    offset = (page - 1) * per_page
+
+    query += " ORDER BY timestamp DESC LIMIT ? OFFSET ?"
+    params.extend([per_page, offset])
+    with sqlite3.connect(DB_PATH) as conn:
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(query, params).fetchall()
+
+    # Список пользователей для фильтра (без пагинации)
+    with sqlite3.connect(DB_PATH) as conn:
+        users = [row[0] for row in conn.execute("SELECT DISTINCT user FROM logs ORDER BY user")]
     user_options = [{'label': u, 'value': u} for u in users]
 
-    if not filtered:
+    if not rows:
         table = html.Div("Нет записей, соответствующих фильтрам", style={'textAlign': 'center', 'padding': '20px'})
     else:
-        # Изменена колонка "Устройство" на "Источник", отображается source
         table = dbc.Table(
             [
-                html.Thead(html.Tr([html.Th("Время"), html.Th("Пользователь"), html.Th("Действие"), html.Th("Детали"), html.Th("IP"), html.Th("Источник"), html.Th("Ошибка")])),
+                html.Thead(html.Tr([html.Th("Время"), html.Th("Пользователь"), html.Th("Действие"),
+                                    html.Th("Детали"), html.Th("IP"), html.Th("Источник"), html.Th("Ошибка")])),
                 html.Tbody([
                     html.Tr([
-                        html.Td(l['timestamp']),
-                        html.Td(l['user']),
-                        html.Td(l['action']),
-                        html.Td(l['details']),
-                        html.Td(l['ip']),
-                        html.Td(l['source']),   # вместо user_agent
-                        html.Td("Да" if l['error'] else "Нет")
-                    ]) for l in reversed(filtered)
+                        html.Td(row['timestamp']),
+                        html.Td(row['user']),
+                        html.Td(row['action']),
+                        html.Td(row['details']),
+                        html.Td(row['ip']),
+                        html.Td(row['source']),
+                        html.Td("Да" if row['error'] else "Нет")
+                    ]) for row in rows
                 ])
             ],
             bordered=True, hover=True, striped=True, responsive=True, style={'margin-top': '20px'}
         )
-    return table, user_options, selected_user
+    return table, user_options, total_pages, total_pages, page
 
 @app.callback(
     Output('download-csv', 'data'),
     Input('export-csv-btn', 'n_clicks'),
+    [Input('filter-user', 'value'),
+     Input('filter-action', 'value'),
+     Input('filter-date-range', 'start_date'),
+     Input('filter-date-range', 'end_date')],
     prevent_initial_call=True
 )
-def export_logs_csv(n_clicks):
-    if n_clicks > 0:
-        output = io.StringIO()
-        writer = csv.DictWriter(output, fieldnames=['timestamp', 'user', 'action', 'details', 'error', 'ip', 'source'])
-        writer.writeheader()
-        for log in logs:
-            writer.writerow({k: log.get(k, '') for k in ['timestamp', 'user', 'action', 'details', 'error', 'ip', 'source']})
-        csv_content = output.getvalue()
-        return dict(content=csv_content, filename=f"digital_footprint_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv")
-    return None
+def export_logs_csv(n_clicks, selected_user, action_contains, start_date, end_date):
+    if n_clicks is None or n_clicks == 0:
+        return None
+
+    query = "SELECT * FROM logs WHERE 1=1"
+    params = []
+    if selected_user:
+        query += " AND user = ?"
+        params.append(selected_user)
+    if action_contains:
+        like_pattern = f"%{action_contains}%"
+        query += " AND (action LIKE ? OR details LIKE ?)"
+        params.extend([like_pattern, like_pattern])
+    if start_date:
+        start_ts = start_date + " 00:00:00"
+        query += " AND timestamp >= ?"
+        params.append(start_ts)
+    if end_date:
+        end_ts = end_date + " 23:59:59"
+        query += " AND timestamp <= ?"
+        params.append(end_ts)
+    query += " ORDER BY timestamp DESC"
+
+    with sqlite3.connect(DB_PATH) as conn:
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(query, params).fetchall()
+
+    output = io.StringIO()
+    writer = csv.DictWriter(output, fieldnames=['timestamp', 'user', 'action', 'details', 'error', 'ip', 'source'])
+    writer.writeheader()
+    for row in rows:
+        writer.writerow({k: row[k] for k in ['timestamp', 'user', 'action', 'details', 'error', 'ip', 'source']})
+    csv_content = output.getvalue()
+    return dict(content=csv_content, filename=f"digital_footprint_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv")
 
 # ==================== FLASK МАРШРУТЫ ====================
 @server.route('/login', methods=['GET', 'POST'])
@@ -1343,9 +1406,8 @@ def admin_clear_logs():
     secret_token = request.args.get('token')
     if secret_token != 'Tutor':
         return jsonify({'status': 'error', 'message': 'Unauthorized'}), 403
-    with logs_lock:
-        logs.clear()
-    save_logs_to_file()
+    with sqlite3.connect(DB_PATH) as conn:
+        conn.execute("DELETE FROM logs")
     ip, ua = get_request_client_info()
     log_action("Система", "Очистка лога", "Лог очищен администратором", ip=ip, user_agent=ua)
     return jsonify({'status': 'success', 'message': 'Logs cleared'})
@@ -1371,5 +1433,5 @@ def render_page_from_url(pathname):
 
 # ==================== ЗАПУСК ====================
 if __name__ == '__main__':
-    load_logs_from_file()
+    init_db()
     server.run(debug=True, host='0.0.0.0', port=5000)
