@@ -17,18 +17,19 @@ import plotly.graph_objects as go
 import dash_bootstrap_components as dbc
 
 # ==================== КОНФИГУРАЦИЯ ====================
-# ⚠️ ЗАМЕНИТЕ ПУТИ К ВАШИМ ФАЙЛАМ
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
 FILE_PATHS = {
-    'ЭОК 1': "C:/Users/Zver/Downloads/logs_Python_науч_20240623-0236.xlsx",
-    'ЭОК 2': "C:/Users/Zver/Downloads/logs_Time_series _20240623-0046.xlsx",
-    'ЭОК 3': "C:/Users/Zver/Downloads/logs_РКИиП_ТВиМС_1_20240623-0235.xlsx",
-    'ЭОК 4': "C:/Users/Zver/Downloads/logs_ТВиМС_ИВТ_1_20240623-0234.xlsx",
-    'ЭОК 5': "C:/Users/Zver/Downloads/logs_БМ_ИБCDIO_20240623-0048.xlsx",
-    'ЭОК 6': "C:/Users/Zver/Downloads/logs_ВМ 1_20240623-0049.xlsx",
-    'ЭОК 7': "C:/Users/Zver/Downloads/logs_ВМ2_20240623-0049.xlsx",
-    'ЭОК 8': "C:/Users/Zver/Downloads/logs_ПАОС МЛиТА_20250305-1134.xlsx",
-    'ЭОК 9': "C:/Users/Zver/Downloads/logs_РКИиП_ТВиМС_1_20250305-1118k.xlsx",
-    'ЭОК 10': "C:/Users/Zver/Downloads/logs_ТВиМС_ИВТ_1_20250305-1119k.xlsx",
+    'ЭОК 1': os.path.join(BASE_DIR, "logs_Python_науч_20240623-0236.xlsx"),
+    'ЭОК 2': os.path.join(BASE_DIR, "logs_Time_series _20240623-0046.xlsx"),
+    'ЭОК 3': os.path.join(BASE_DIR, "logs_РКИиП_ТВиМС_1_20240623-0235.xlsx"),
+    'ЭОК 4': os.path.join(BASE_DIR, "logs_ТВиМС_ИВТ_1_20240623-0234.xlsx"),
+    'ЭОК 5': os.path.join(BASE_DIR, "logs_БМ_ИБCDIO_20240623-0048.xlsx"),
+    'ЭОК 6': os.path.join(BASE_DIR, "logs_ВМ 1_20240623-0049.xlsx"),
+    'ЭОК 7': os.path.join(BASE_DIR, "logs_ВМ2_20240623-0049.xlsx"),
+    'ЭОК 8': os.path.join(BASE_DIR, "logs_ПАОС МЛиТА_20250305-1134.xlsx"),
+    'ЭОК 9': os.path.join(BASE_DIR, "logs_РКИиП_ТВиМС_1_20250305-1118k.xlsx"),
+    'ЭОК 10': os.path.join(BASE_DIR, "logs_ТВиМС_ИВТ_1_20250305-1119k.xlsx"),
 }
 
 # Списки студентов для курсов 9 и 10
