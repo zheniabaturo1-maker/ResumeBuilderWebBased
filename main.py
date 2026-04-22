@@ -1381,4 +1381,4 @@ def render_page_from_url(pathname):
 # ==================== ЗАПУСК ====================
 if __name__ == '__main__':
     load_logs_from_file()
-    server.run(debug=True, host='0.0.0.0', port=5000)
+    server.run(debug=True, use_reloaded=False, host='0.0.0.0', port=5000)
