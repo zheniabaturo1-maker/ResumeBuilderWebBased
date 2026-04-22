@@ -1218,7 +1218,11 @@ def update_logs_table(selected_user, action_contains, start_date, end_date, rese
         start_date = None
         end_date = None
 
-    filtered = logs.copy()
+    # Блокировка при копировании списка логов
+    with logs_lock:
+        logs_copy = logs.copy()
+
+    filtered = logs_copy
     if selected_user:
         filtered = [l for l in filtered if l['user'] == selected_user]
     if action_contains:
@@ -1230,13 +1234,13 @@ def update_logs_table(selected_user, action_contains, start_date, end_date, rese
         end_ts = datetime.strptime(end_date, '%Y-%m-%d') + timedelta(days=1)
         filtered = [l for l in filtered if datetime.strptime(l['timestamp'], '%Y-%m-%d %H:%M:%S') <= end_ts]
 
-    users = sorted(set(l['user'] for l in logs))
+    # Пользователи также из копии
+    users = sorted(set(l['user'] for l in logs_copy))
     user_options = [{'label': u, 'value': u} for u in users]
 
     if not filtered:
         table = html.Div("Нет записей, соответствующих фильтрам", style={'textAlign': 'center', 'padding': '20px'})
     else:
-        # Изменена колонка "Устройство" на "Источник", отображается source
         table = dbc.Table(
             [
                 html.Thead(html.Tr([html.Th("Время"), html.Th("Пользователь"), html.Th("Действие"), html.Th("Детали"), html.Th("IP"), html.Th("Источник"), html.Th("Ошибка")])),
@@ -1247,7 +1251,7 @@ def update_logs_table(selected_user, action_contains, start_date, end_date, rese
                         html.Td(l['action']),
                         html.Td(l['details']),
                         html.Td(l['ip']),
-                        html.Td(l['source']),   # вместо user_agent
+                        html.Td(l['source']),
                         html.Td("Да" if l['error'] else "Нет")
                     ]) for l in reversed(filtered)
                 ])
@@ -1256,6 +1260,7 @@ def update_logs_table(selected_user, action_contains, start_date, end_date, rese
         )
     return table, user_options, selected_user
 
+
 @app.callback(
     Output('download-csv', 'data'),
     Input('export-csv-btn', 'n_clicks'),
@@ -1263,10 +1268,13 @@ def update_logs_table(selected_user, action_contains, start_date, end_date, rese
 )
 def export_logs_csv(n_clicks):
     if n_clicks > 0:
+        # Блокировка при копировании списка логов
+        with logs_lock:
+            logs_copy = logs.copy()
         output = io.StringIO()
         writer = csv.DictWriter(output, fieldnames=['timestamp', 'user', 'action', 'details', 'error', 'ip', 'source'])
         writer.writeheader()
-        for log in logs:
+        for log in logs_copy:
             writer.writerow({k: log.get(k, '') for k in ['timestamp', 'user', 'action', 'details', 'error', 'ip', 'source']})
         csv_content = output.getvalue()
         return dict(content=csv_content, filename=f"digital_footprint_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv")
