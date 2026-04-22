@@ -16,7 +16,8 @@ import plotly.express as px
 import plotly.graph_objects as go
 import dash_bootstrap_components as dbc
 
-# ==================== КОНФИГУРАЦИЯ ====================
+# ?? ЗАМЕНИТЕ ПУТИ К ВАШИМ ФАЙЛАМ через import os
+
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 FILE_PATHS = {
@@ -548,9 +549,7 @@ def digital_footprint_page():
             dcc.Download(id='download-csv')
         ], style={'margin-bottom': '20px', 'background': '#f8f9fa', 'padding': '15px', 'border-radius': '5px'}),
         html.Div(id='logs-table-container'),
-        dbc.Pagination(id='logs-pagination', max_value=1, first_last=True, previous_next=True, fully_expanded=False, active_page=1),
-        dcc.Store(id='logs-page', data=1),
-        dcc.Store(id='logs-total-pages', data=1)
+        dbc.Pagination(id='logs-pagination', max_value=1, first_last=True, previous_next=True, fully_expanded=False, active_page=1)
     ])
 
 app.layout = html.Div([
@@ -1194,38 +1193,34 @@ def update_teacher_stats(teacher_name, semester, avg_teacher, avg_student):
 @app.callback(
     [Output('logs-table-container', 'children'),
      Output('filter-user', 'options'),
-     Output('logs-pagination', 'max_value'),
-     Output('logs-total-pages', 'data'),
-     Output('logs-page', 'data')],
+     Output('logs-pagination', 'max_value')],
     [Input('filter-user', 'value'),
      Input('filter-action', 'value'),
      Input('filter-date-range', 'start_date'),
      Input('filter-date-range', 'end_date'),
      Input('reset-filters', 'n_clicks'),
-     Input('logs-pagination', 'active_page'),
-     Input('logs-page', 'data')],
-    prevent_initial_call=False  # можно явно указать False, но это и так по умолчанию
+     Input('logs-pagination', 'active_page')],
+    prevent_initial_call=True
 )
-def update_logs_table(selected_user, action_contains, start_date, end_date, reset_clicks, active_page, current_page):
+def update_logs_table(selected_user, action_contains, start_date, end_date, reset_clicks, active_page):
     ctx = callback_context
-    # Если это первый запуск (нет триггера), устанавливаем страницу 1
-    if not ctx.triggered:
+    # Сброс фильтров
+    if ctx.triggered and ctx.triggered[0]['prop_id'] == 'reset-filters.n_clicks':
+        selected_user = None
+        action_contains = ''
+        start_date = None
+        end_date = None
+        active_page = 1
+
+    # Если active_page не определён (при первом вызове), ставим 1
+    if active_page is None:
         page = 1
     else:
-        # Сброс фильтров
-        if ctx.triggered[0]['prop_id'] == 'reset-filters.n_clicks':
-            selected_user = None
-            action_contains = ''
-            start_date = None
-            end_date = None
-            active_page = 1
-        # Определяем номер страницы: active_page может быть None, тогда берём current_page (из Store)
-        page = active_page if active_page is not None else current_page
-        page = page if page else 1
+        page = active_page
 
     per_page = 50
 
-    # Формируем SQL запросы
+    # Формируем SQL запрос
     query = "SELECT * FROM logs WHERE 1=1"
     count_query = "SELECT COUNT(*) FROM logs WHERE 1=1"
     params = []
@@ -1263,7 +1258,7 @@ def update_logs_table(selected_user, action_contains, start_date, end_date, rese
         conn.row_factory = sqlite3.Row
         rows = conn.execute(query, params).fetchall()
 
-    # Список пользователей для фильтра (без пагинации)
+    # Список пользователей для фильтра
     with sqlite3.connect(DB_PATH) as conn:
         users = [row[0] for row in conn.execute("SELECT DISTINCT user FROM logs ORDER BY user")]
     user_options = [{'label': u, 'value': u} for u in users]
@@ -1289,7 +1284,7 @@ def update_logs_table(selected_user, action_contains, start_date, end_date, rese
             ],
             bordered=True, hover=True, striped=True, responsive=True, style={'margin-top': '20px'}
         )
-    return table, user_options, total_pages, total_pages, page
+    return table, user_options, total_pages
 
 @app.callback(
     Output('download-csv', 'data'),
