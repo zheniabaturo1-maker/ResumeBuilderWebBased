@@ -144,40 +144,58 @@ GRAPH_STYLE = {
 }
 
 # ==================== ЦИФРОВОЙ СЛЕД (РАСШИРЕННЫЙ) ====================
+LOG_FILE = 'digital_footprint.csv'
 logs = []
 logs_lock = threading.Lock()
-LOG_FILE = 'digital_footprint.json'
 
 def save_logs_to_file():
-    """Сохраняет текущие логи в файл (безопасно, с блокировкой)"""
-    try:
-        with logs_lock:
-            # Создаём копию списка для записи
-            logs_copy = logs[:]
-        # Записываем копию без блокировки файла
-        with open(LOG_FILE, 'w', encoding='utf-8') as f:
-            json.dump(logs_copy, f, ensure_ascii=False, indent=2)
-    except Exception as e:
-        print(f"Ошибка сохранения логов: {e}")
+    pass
 
 def load_logs_from_file():
-    """Загружает логи из файла при старте приложения"""
     global logs
-    try:
-        with open(LOG_FILE, 'r', encoding='utf-8') as f:
-            loaded = json.load(f)
-            with logs_lock:
-                logs = loaded
-                for log in logs:
-                    if 'source' not in log:
-                        log['source'] = 'unknown'
-        print(f"Загружено {len(logs)} записей из {LOG_FILE}")
-    except FileNotFoundError:
-        print(f"Файл {LOG_FILE} не найден, создаётся новый.")
+    with logs_lock:
         logs = []
-    except Exception as e:
-        print(f"Ошибка загрузки логов: {e}")
-        logs = []
+        if not os.path.exists(LOG_FILE):
+            return
+        try:
+            with open(LOG_FILE, 'r', encoding='utf-8', newline='') as f:
+                reader = csv.DictReader(f)
+                for row in reader:
+                    row['error'] = row.get('error', 'False') == 'True'
+                    logs.append(row)
+        except Exception as e:
+            print(f"Ошибка загрузки логов: {e}")
+
+def log_action(user, action, details, error=False, ip=None, user_agent=None, source=None):
+    if source is None:
+        if user_agent and user_agent != 'N/A':
+            ua_lower = user_agent.lower()
+            if any(key in ua_lower for key in ['mobile', 'android', 'iphone', 'ipad', 'phone']):
+                source = 'mobile'
+            else:
+                source = 'web'
+        else:
+            source = 'unknown'
+    new_entry = {
+        'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        'user': user,
+        'action': action,
+        'details': details,
+        'error': 'True' if error else 'False',
+        'ip': ip or 'N/A',
+        'source': source
+    }
+    with logs_lock:
+        logs.append(new_entry.copy())
+        file_exists = os.path.isfile(LOG_FILE)
+        try:
+            with open(LOG_FILE, 'a', encoding='utf-8', newline='') as f:
+                writer = csv.DictWriter(f, fieldnames=['timestamp', 'user', 'action', 'details', 'error', 'ip', 'source'])
+                if not file_exists:
+                    writer.writeheader()
+                writer.writerow(new_entry)
+        except Exception as e:
+            print(f"Ошибка записи лога: {e}")
 
 def periodic_save():
     """Фоновая задача: каждые 60 секунд сохраняет логи"""
