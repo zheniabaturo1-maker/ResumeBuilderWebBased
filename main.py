@@ -8,6 +8,8 @@ import threading
 import json
 import io
 import csv
+import atexit
+import time
 from flask import Flask, render_template_string, redirect, url_for, request, session, jsonify
 from flask_login import LoginManager, UserMixin, login_user, logout_user, login_required
 from dash import Dash, dcc, html, Input, Output, callback_context
@@ -147,25 +149,53 @@ logs_lock = threading.Lock()
 LOG_FILE = 'digital_footprint.json'
 
 def save_logs_to_file():
+    """Сохраняет текущие логи в файл (безопасно, с блокировкой)"""
     try:
+        with logs_lock:
+            # Создаём копию списка для записи
+            logs_copy = logs[:]
+        # Записываем копию без блокировки файла
         with open(LOG_FILE, 'w', encoding='utf-8') as f:
-            json.dump(logs, f, ensure_ascii=False, indent=2)
+            json.dump(logs_copy, f, ensure_ascii=False, indent=2)
     except Exception as e:
         print(f"Ошибка сохранения логов: {e}")
 
 def load_logs_from_file():
+    """Загружает логи из файла при старте приложения"""
     global logs
     try:
         with open(LOG_FILE, 'r', encoding='utf-8') as f:
-            logs = json.load(f)
-            for log in logs:
-                if 'source' not in log:
-                    log['source'] = 'unknown'
+            loaded = json.load(f)
+            with logs_lock:
+                logs = loaded
+                for log in logs:
+                    if 'source' not in log:
+                        log['source'] = 'unknown'
+        print(f"Загружено {len(logs)} записей из {LOG_FILE}")
     except FileNotFoundError:
+        print(f"Файл {LOG_FILE} не найден, создаётся новый.")
         logs = []
     except Exception as e:
         print(f"Ошибка загрузки логов: {e}")
         logs = []
+
+def periodic_save():
+    """Фоновая задача: каждые 60 секунд сохраняет логи"""
+    while True:
+        time.sleep(60)
+        save_logs_to_file()
+
+def save_logs_on_exit():
+    """Сохраняет логи при завершении приложения"""
+    print("Сохранение логов перед выходом...")
+    save_logs_to_file()
+
+# Регистрируем сохранение при завершении
+atexit.register(save_logs_on_exit)
+
+# Запускаем фоновый поток для периодического сохранения (раз в минуту)
+save_thread = threading.Thread(target=periodic_save, daemon=True)
+save_thread.start()
 
 def get_request_client_info():
     from flask import request
@@ -198,8 +228,11 @@ def log_action(user, action, details, error=False, ip=None, user_agent=None, sou
             'user_agent': user_agent or 'N/A',
             'source': source
         })
-        if len(logs) > 1000:
+        # Ограничиваем размер списка до 5000 записей, чтобы избежать переполнения памяти
+        if len(logs) > 5000:
             logs.pop(0)
+    # Сохраняем каждый раз, но можно делать это реже ради производительности.
+    # Для надёжности всё же сохраняем после каждого добавления (но можно закомментировать, если станет тормозить)
     save_logs_to_file()
 
 # ==================== ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ====================
@@ -686,7 +719,7 @@ def update_main_stats(selected_course, total_students, avg_teacher_weekly,
      Output('pedagogical-activity-level', 'children'),
      Output('pedagogical-activity-description', 'children')],
     [Input('course-dropdown', 'value'), Input('week-dropdown', 'value'), Input('selected-teacher', 'data'),
-     Input('current-teacher', 'data')]  # Добавлен current-teacher
+     Input('current-teacher', 'data')]
 )
 def update_main_graphs(selected_course, selected_week, teacher_name, current_user):
     ip, ua = get_request_client_info()
@@ -712,7 +745,7 @@ def update_main_graphs(selected_course, selected_week, teacher_name, current_use
         elif selected_course == 'ЭОК 10':
             df_students = df_students[df_students['Полное имя пользователя'].isin(students_to_keep_df_course10)]
 
-        # Месячная активность
+        # Месячная активность (без изменений)
         if selected_course in SPRING_COURSES_2024:
             df_month = df_teacher[(df_teacher['Время'].dt.month >= 2) & (df_teacher['Время'].dt.month <= 5)]
             month_order = [2, 3, 4, 5]
@@ -969,7 +1002,7 @@ def update_main_graphs(selected_course, selected_week, teacher_name, current_use
     [Output('activity-graph-teacher', 'figure'), Output('weekly-activity-graph-teacher', 'figure'),
      Output('avg-activity-store', 'data'), Output('avg-student-activity-store', 'data')],
     [Input('semester-dropdown-teacher', 'value'), Input('selected-teacher-page', 'data'),
-     Input('current-teacher-teacher-page', 'data')]  # Добавлен current-teacher
+     Input('current-teacher-teacher-page', 'data')]
 )
 def update_teacher_dashboards(selected_semester, teacher_name, current_user):
     ip, ua = get_request_client_info()
@@ -1081,7 +1114,7 @@ def toggle_panels(info_clicks, dashboard_clicks):
 @app.callback(
     Output('teacher-info-panel', 'children'),
     [Input('selected-teacher-page', 'data'), Input('avg-activity-store', 'data'),
-     Input('avg-student-activity-store', 'data'), Input('current-teacher-teacher-page', 'data')]  # Добавлен current-teacher
+     Input('avg-student-activity-store', 'data'), Input('current-teacher-teacher-page', 'data')]
 )
 def update_teacher_info(teacher_name, avg_teacher, avg_student, current_user):
     ip, ua = get_request_client_info()
@@ -1260,7 +1293,6 @@ def update_logs_table(selected_user, action_contains, start_date, end_date, rese
         )
     return table, user_options, selected_user
 
-
 @app.callback(
     Output('download-csv', 'data'),
     Input('export-csv-btn', 'n_clicks'),
@@ -1381,4 +1413,4 @@ def render_page_from_url(pathname):
 # ==================== ЗАПУСК ====================
 if __name__ == '__main__':
     load_logs_from_file()
-    server.run(debug=True, use_reloaded=False, host='0.0.0.0', port=5000)
+    server.run(debug=True, host='0.0.0.0', port=5000)
