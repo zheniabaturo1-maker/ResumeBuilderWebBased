@@ -1739,8 +1739,8 @@ def render_page_from_url(pathname):
     else:
         return home_page(teacher)
 
+load_logs_from_file()
+load_weekly_models()
 # ==================== ЗАПУСК ====================
 if __name__ == '__main__':
-    load_logs_from_file()
-    load_weekly_models()
     server.run(debug=True, host='0.0.0.0', port=5000)
