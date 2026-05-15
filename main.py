@@ -16,18 +16,12 @@ from dash import Dash, dcc, html, Input, Output, callback_context
 import plotly.express as px
 import plotly.graph_objects as go
 import dash_bootstrap_components as dbc
-
-# НОВЫЕ ИМПОРТЫ ДЛЯ МОДЕЛИ
-from sklearn.model_selection import train_test_split
 from sklearn.ensemble import RandomForestClassifier
-from sklearn.linear_model import LogisticRegression
-from sklearn.metrics import accuracy_score, classification_report, roc_auc_score
+from sklearn.metrics import accuracy_score
 import joblib
 import warnings
 warnings.filterwarnings('ignore')
 
-# ==================== КОНФИГУРАЦИЯ ====================
-# ⚠️ ЗАМЕНИТЕ ПУТИ К ВАШИМ ФАЙЛАМ ЛОГОВ
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 FILE_PATHS = {
@@ -56,7 +50,7 @@ FILE_PATHS = {
     'ЭОК 23': os.path.join(BASE_DIR, "logs_Теория вероятностей и математическая статистика - часть 2 _Осень_2026.xlsx"),
 }
 
-# Списки студентов для курсов 9 и 10 (оставляем без изменений)
+# Списки студентов для курсов 9 и 10
 students_to_keep_df_course9 = [
     "Абросимов Всеволод Сергеевич", "Айрапетян Давид Артакович", "Андронов Владислав Васильевич",
     "Басов Егор Дмитриевич", "Батодалаев Даши Дугарович", "Башмаков Артём Алексеевич",
@@ -111,7 +105,7 @@ AUTUMN_COURSES_2025 = ['ЭОК 18', 'ЭОК 19', 'ЭОК 20', 'ЭОК 21', 'ЭО
 SPRING_COURSES_2026 = []
 AUTUMN_COURSES_2026 = []
 
-# Недельные диапазоны (добавлены 2021–2026)
+# Недельные диапазоны (полные, как в вашем исходном коде)
 WEEK_RANGES = {
     'SPRING_2021': [
         ('2021-02-08', '2021-02-15'), ('2021-02-15', '2021-02-22'), ('2021-02-22', '2021-03-01'),
@@ -211,7 +205,7 @@ WEEK_RANGES = {
     ],
 }
 
-# Соответствие курсов преподавателям (добавьте новые курсы)
+# Соответствие курсов преподавателям
 teacher_dict = {
     'ЭОК 1': 'Преподаватель 1', 'ЭОК 2': 'Преподаватель 1',
     'ЭОК 3': 'Преподаватель 1', 'ЭОК 4': 'Преподаватель 1',
@@ -238,7 +232,7 @@ TEACHER_CREDENTIALS = {
     'Заведующий': 'headpass',
 }
 
-# Загрузка данных
+# Загрузка данных логов
 courses = {}
 for name, path in FILE_PATHS.items():
     try:
@@ -333,7 +327,6 @@ def get_request_client_info():
 
 # ==================== ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ====================
 def get_week_ranges_for_course(course_name):
-    # Проверка курсов по семестрам (от новых к старым)
     if course_name in AUTUMN_COURSES_2026:
         return WEEK_RANGES['AUTUMN_2026']
     elif course_name in SPRING_COURSES_2026:
@@ -358,7 +351,6 @@ def get_week_ranges_for_course(course_name):
         return WEEK_RANGES['AUTUMN_2021']
     elif course_name in SPRING_COURSES_2021:
         return WEEK_RANGES['SPRING_2021']
-    # fallback
     return WEEK_RANGES['AUTUMN_2023']
 
 def get_actual_weeks_count(df, selected_course):
@@ -496,7 +488,6 @@ def create_graph_with_tooltip(graph_id, figure=None, tooltip_text=""):
         ])
     ])
 
-
 # ==================== FLASK И DASH ====================
 server = Flask(__name__)
 server.secret_key = 'supersecretkey2025'
@@ -505,12 +496,10 @@ login_manager = LoginManager()
 login_manager.init_app(server)
 login_manager.login_view = 'login'
 
-
 class User(UserMixin):
     def __init__(self, name):
         self.id = name
         self.name = name
-
 
 @login_manager.user_loader
 def load_user(user_id):
@@ -518,282 +507,260 @@ def load_user(user_id):
         return User(user_id)
     return None
 
-
 app = Dash(__name__, server=server, external_stylesheets=[dbc.themes.BOOTSTRAP,
-                                                          'https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css'],
+                                                           'https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css'],
            routes_pathname_prefix='/dash/')
 
-# ==================== НОВЫЙ БЛОК: ПРИЗНАКИ СТУДЕНТОВ И МОДЕЛЬ ====================
+# ==================== ГЛОБАЛЬНЫЕ ПЕРЕМЕННЫЕ ДЛЯ НЕДЕЛЬНЫХ МОДЕЛЕЙ ====================
+weekly_models = {}
+weekly_features_list = {}
+WEEKLY_MODELS_DIR = "weekly_models"
+GRADES_FILE = "C:/Users/Zver/Downloads/student_grades.xlsx"
 
-# Путь к вашему готовому файлу с признаками и целевой переменной
-MODEL_GRADES_FILE = os.path.join(BASE_DIR, "student_grades_renamed.xlsx")
+# ==================== ФУНКЦИЯ ПОСТРОЕНИЯ НЕДЕЛЬНОГО ДАТАСЕТА ИЗ ЛОГОВ ====================
+def build_weekly_dataset_from_logs(grades_file_path, max_weeks=18):
+    grades_df = pd.read_excel(grades_file_path)
+    if not all(col in grades_df.columns for col in ['Студент', 'Курс', 'Сдал']):
+        raise ValueError("Файл оценок должен содержать колонки 'Студент', 'Курс', 'Сдал'")
+    all_rows = []
+    for _, row in grades_df.iterrows():
+        student = row['Студент']
+        course_name = row['Курс']
+        target = row['Сдал']
+        if course_name not in courses or courses[course_name].empty:
+            continue
+        df_course = courses[course_name].copy()
+        df_course['Время'] = pd.to_datetime(df_course['Время'], format="%d/%m/%y, %H:%M", errors='coerce')
+        df_course = df_course.dropna(subset=['Время'])
+        week_ranges = get_week_ranges_for_course(course_name)
+        actual_weeks = min(len(week_ranges), max_weeks)
+        for week in range(1, actual_weeks + 1):
+            end_date = pd.to_datetime(week_ranges[week-1][1])
+            df_student_up_to = df_course[(df_course['Полное имя пользователя'] == student) & (df_course['Время'] <= end_date)].copy()
+            start_week, end_week = week_ranges[week-1]
+            df_week = df_student_up_to.query("@start_week <= Время <= @end_week")
+            week_events = len(df_week)
+            week_unique_resources = df_week['Контекст события'].nunique()
+            week_forum_events = len(df_week[df_week['Компонент'].str.contains('Форум', case=False, na=False)])
+            total_events_cumul = len(df_student_up_to)
+            total_unique_resources_cumul = df_student_up_to['Контекст события'].nunique()
+            total_forum_cumul = len(df_student_up_to[df_student_up_to['Компонент'].str.contains('Форум', case=False, na=False)])
+            prev_week_events = 0
+            if week > 1:
+                prev_start, prev_end = week_ranges[week-2]
+                prev_week = df_course.query("@prev_start <= Время <= @prev_end and `Полное имя пользователя` == @student")
+                prev_week_events = len(prev_week)
+            available_items_total = df_course['Контекст события'].nunique()
+            all_rows.append({
+                'Студент': student,
+                'Курс': course_name,
+                'Неделя': week,
+                'Сдал': target,
+                'week_events': week_events,
+                'week_unique_resources': week_unique_resources,
+                'week_forum_events': week_forum_events,
+                'total_events_cumul': total_events_cumul,
+                'total_unique_resources_cumul': total_unique_resources_cumul,
+                'total_forum_cumul': total_forum_cumul,
+                'prev_week_events': prev_week_events,
+                'available_items_total': available_items_total
+            })
+    df_weekly = pd.DataFrame(all_rows)
+    return df_weekly
 
+# ==================== ФУНКЦИЯ ОБУЧЕНИЯ НЕДЕЛЬНЫХ МОДЕЛЕЙ ====================
+def train_weekly_models(grades_file_path):
+    print("Построение недельного датасета из логов...")
+    df_weekly = build_weekly_dataset_from_logs(grades_file_path)
+    print(f"Датасет содержит {len(df_weekly)} записей (студент-неделя)")
+    feature_cols = [
+        'week_events',
+        'week_unique_resources',
+        'week_forum_events',
+        'total_events_cumul',
+        'total_unique_resources_cumul',
+        'total_forum_cumul',
+        'prev_week_events',
+        'available_items_total'
+    ]
+    existing_features = [c for c in feature_cols if c in df_weekly.columns]
+    print(f"Признаки: {existing_features}")
+    os.makedirs(WEEKLY_MODELS_DIR, exist_ok=True)
+    weeks = sorted(df_weekly['Неделя'].unique())
+    trained = 0
+    for week in weeks:
+        df_week = df_weekly[df_weekly['Неделя'] == week]
+        X = df_week[existing_features]
+        y = df_week['Сдал']
+        if len(X) < 10:
+            print(f"Неделя {week}: недостаточно данных ({len(X)}), пропускаем")
+            continue
+        model = RandomForestClassifier(n_estimators=100, random_state=42, class_weight='balanced')
+        model.fit(X, y)
+        acc = accuracy_score(y, model.predict(X))
+        print(f"Неделя {week}: обучена, точность на обучающей выборке = {acc:.3f}")
+        joblib.dump(model, os.path.join(WEEKLY_MODELS_DIR, f"model_week_{week}.pkl"))
+        joblib.dump(existing_features, os.path.join(WEEKLY_MODELS_DIR, f"features_week_{week}.pkl"))
+        trained += 1
+    print(f"Обучено моделей: {trained}")
+    return df_weekly
 
-# Функция извлечения признаков для одного студента на одном курсе (используется для предсказания на новых курсах)
-def extract_student_features_for_course(df_course, student_name, week_ranges, actual_weeks):
-    """
-    Возвращает словарь признаков для студента на курсе.
-    Названия ключей должны совпадать с колонками в файле student_grades.xlsx.
-    """
+# ==================== ЗАГРУЗКА МОДЕЛЕЙ ПРИ СТАРТЕ ====================
+def load_weekly_models():
+    global weekly_models, weekly_features_list
+    weekly_models.clear()
+    weekly_features_list.clear()
+    if not os.path.exists(WEEKLY_MODELS_DIR):
+        print("Папка с моделями не найдена. Сначала обучите модели через кнопку 'Обучить модель'.")
+        return
+    for fname in os.listdir(WEEKLY_MODELS_DIR):
+        if fname.startswith("model_week_") and fname.endswith(".pkl"):
+            week = int(fname.split("_")[2].split(".")[0])
+            model_path = os.path.join(WEEKLY_MODELS_DIR, fname)
+            features_path = os.path.join(WEEKLY_MODELS_DIR, f"features_week_{week}.pkl")
+            if os.path.exists(features_path):
+                weekly_models[week] = joblib.load(model_path)
+                weekly_features_list[week] = joblib.load(features_path)
+                print(f"Загружена модель для недели {week}")
+    print(f"Загружено моделей: {len(weekly_models)}")
+
+# ==================== ФУНКЦИЯ ИЗВЛЕЧЕНИЯ ПРИЗНАКОВ ДЛЯ ПРОГНОЗА ====================
+def extract_weekly_features_for_student(df_course, student_name, current_week, week_ranges):
     df_student = df_course[df_course['Полное имя пользователя'] == student_name].copy()
     if df_student.empty:
         return None
+    end_date = pd.to_datetime(week_ranges[current_week-1][1])
+    df_student_up_to = df_student[df_student['Время'] <= end_date]
+    start_week, end_week = week_ranges[current_week-1]
+    df_week = df_student_up_to.query("@start_week <= Время <= @end_week")
+    week_events = len(df_week)
+    week_unique_resources = df_week['Контекст события'].nunique()
+    week_forum_events = len(df_week[df_week['Компонент'].str.contains('Форум', case=False, na=False)])
+    total_events_cumul = len(df_student_up_to)
+    total_unique_resources_cumul = df_student_up_to['Контекст события'].nunique()
+    total_forum_cumul = len(df_student_up_to[df_student_up_to['Компонент'].str.contains('Форум', case=False, na=False)])
+    prev_week_events = 0
+    if current_week > 1:
+        prev_start, prev_end = week_ranges[current_week-2]
+        prev_week = df_student.query("@prev_start <= Время <= @prev_end")
+        prev_week_events = len(prev_week)
+    available_items_total = df_course['Контекст события'].nunique()
+    return {
+        'week_events': week_events,
+        'week_unique_resources': week_unique_resources,
+        'week_forum_events': week_forum_events,
+        'total_events_cumul': total_events_cumul,
+        'total_unique_resources_cumul': total_unique_resources_cumul,
+        'total_forum_cumul': total_forum_cumul,
+        'prev_week_events': prev_week_events,
+        'available_items_total': available_items_total
+    }
 
-    features = {}
-
-    # 1. Количество событий по каждой неделе
-    weekly_counts = []
-    for week_idx, (start, end) in enumerate(week_ranges[:actual_weeks], 1):
-        cnt = len(df_student.query("@start <= Время <= @end"))
-        weekly_counts.append(cnt)
-        features[f'week_{week_idx}_events'] = cnt
-
-    # Суммарная активность
-    features['total_events'] = sum(weekly_counts)
-    features['avg_weekly_events'] = features['total_events'] / actual_weeks if actual_weeks > 0 else 0
-
-    # Активность в первые 2 и 4 недели
-    features['first_2weeks_events'] = sum(weekly_counts[:2])
-    features['first_4weeks_events'] = sum(weekly_counts[:4])
-
-    # 2. Количество уникальных ресурсов (контекст события)
-    features['unique_resources'] = df_student['Контекст события'].nunique()
-
-    # 3. Доля активности на форумах
-    forum_events = df_student[df_student['Компонент'].str.contains('Форум', case=False, na=False)]
-    features['forum_events_count'] = len(forum_events)
-    features['forum_ratio'] = features['forum_events_count'] / features['total_events'] if features[
-                                                                                               'total_events'] > 0 else 0
-
-    # 4. Активность в вечернее/ночное время (20:00 - 02:00)
-    evening_mask = (df_student['Время'].dt.hour >= 20) | (df_student['Время'].dt.hour <= 2)
-    features['evening_activity'] = evening_mask.sum()
-    features['evening_ratio'] = features['evening_activity'] / features['total_events'] if features[
-                                                                                               'total_events'] > 0 else 0
-
-    # 5. Длительность сессий студента
-    if len(df_student) > 1:
-        df_student_sorted = df_student.sort_values('Время')
-        df_student_sorted['time_diff'] = df_student_sorted['Время'].diff().dt.total_seconds() / 60
-        df_student_sorted['new_session'] = df_student_sorted['time_diff'] > 60
-        df_student_sorted['session_id'] = df_student_sorted['new_session'].cumsum()
-        session_durations = []
-        for sess_id in df_student_sorted['session_id'].unique():
-            sess = df_student_sorted[df_student_sorted['session_id'] == sess_id]
-            if len(sess) > 1:
-                duration = (sess['Время'].max() - sess['Время'].min()).total_seconds() / 60
-                session_durations.append(duration)
-        features['avg_session_length_min'] = np.mean(session_durations) if session_durations else 0
-        features['total_sessions'] = len(session_durations)
-    else:
-        features['avg_session_length_min'] = 0
-        features['total_sessions'] = 0
-
-    # 6. Стабильность: стандартное отклонение недельной активности
-    if len(weekly_counts) > 1:
-        features['weekly_std'] = np.std(weekly_counts)
-    else:
-        features['weekly_std'] = 0
-
-    # 7. Доля пропущенных недель (недели без активности)
-    zero_weeks = sum(1 for cnt in weekly_counts if cnt == 0)
-    features['zero_activity_weeks'] = zero_weeks
-    features['zero_weeks_ratio'] = zero_weeks / actual_weeks if actual_weeks > 0 else 1
-
-    return features
-
-
-# Функция загрузки готовой таблицы признаков из вашего Excel-файла
-def load_features_dataset(file_path):
-    """Загружает готовую таблицу признаков из Excel."""
-    df = pd.read_excel(file_path)
-    # Удаляем строки, где 'Сдал' отсутствует
-    df = df.dropna(subset=['Сдал'])
-    if 'Сдал' not in df.columns:
-        raise ValueError("В файле отсутствует колонка 'Сдал'")
-    exclude_cols = ['Студент', 'Курс', 'Сдал']
-    feature_cols = [c for c in df.columns if c not in exclude_cols]
-    X = df[feature_cols]
-    y = df['Сдал']
-    global feature_columns
-    feature_columns = feature_cols
-    return X, y, df
-
-
-# Глобальные переменные для модели
-trained_model = None
-feature_columns = None
-
-
-# Функция обучения модели на готовых признаках
-def train_prediction_model(grades_file_path=None):
-    global trained_model, feature_columns
-    if grades_file_path is None:
-        grades_file_path = MODEL_GRADES_FILE
-    if not os.path.exists(grades_file_path):
-        raise FileNotFoundError(f"Файл {grades_file_path} не найден")
-    print("Загрузка готовых признаков из файла...")
-    X, y, full_df = load_features_dataset(grades_file_path)
-    print(f"Загружено {len(X)} записей, признаков: {X.shape[1]}")
-    full_df.to_excel("student_features_loaded.xlsx", index=False)
-    print("Обучение модели Random Forest...")
-    model = RandomForestClassifier(n_estimators=100, random_state=42, class_weight='balanced')
-    model.fit(X, y)
-    y_pred = model.predict(X)
-    acc = accuracy_score(y, y_pred)
-    print(f"Точность на обучающей выборке: {acc:.3f}")
-    trained_model = model
-    feature_columns = X.columns.tolist()
-    joblib.dump(model, 'student_success_model.pkl')
-    joblib.dump(feature_columns, 'model_features.pkl')
-    print("Модель сохранена в student_success_model.pkl")
-    return model, full_df
-
-
-# Функция предсказания для нового курса (текущего)
-def predict_current_course(course_name, current_week=None):
-    if trained_model is None:
-        raise ValueError("Модель не обучена. Сначала выполните train_prediction_model()")
+# ==================== ФУНКЦИЯ ПРЕДСКАЗАНИЯ ====================
+def predict_course_weekly(course_name, week_num):
+    if week_num not in weekly_models:
+        raise ValueError(f"Модель для недели {week_num} не загружена. Доступны: {list(weekly_models.keys())}")
+    model = weekly_models[week_num]
+    feature_cols = weekly_features_list[week_num]
     if course_name not in courses or courses[course_name].empty:
-        raise ValueError(f"Курс {course_name} не найден или пуст")
+        raise ValueError(f"Курс {course_name} не найден")
     df_course = courses[course_name].copy()
     df_course['Время'] = pd.to_datetime(df_course['Время'], format="%d/%m/%y, %H:%M", errors='coerce')
     df_course = df_course.dropna(subset=['Время'])
     week_ranges = get_week_ranges_for_course(course_name)
-    actual_weeks = get_actual_weeks_count(df_course, course_name)
-    if current_week is not None and current_week < actual_weeks:
-        actual_weeks = current_week
+    end_date = pd.to_datetime(week_ranges[week_num-1][1])
+    df_course = df_course[df_course['Время'] <= end_date]
     all_students = df_course['Полное имя пользователя'].unique()
     teacher = teacher_dict.get(course_name)
     if teacher:
         all_students = [s for s in all_students if s != teacher]
     predictions = []
     for student in all_students:
-        features = extract_student_features_for_course(df_course, student, week_ranges, actual_weeks)
+        features = extract_weekly_features_for_student(df_course, student, week_num, week_ranges)
         if features is None:
             proba = 0.1
         else:
-            X_pred = pd.DataFrame([features])[feature_columns]
-            proba = trained_model.predict_proba(X_pred)[0][1]
+            X_pred = pd.DataFrame([features])[feature_cols]
+            proba = model.predict_proba(X_pred)[0][1]
         predictions.append({
             'Студент': student,
             'Вероятность_сдачи': proba,
             'Прогноз': 'Сдаст' if proba >= 0.5 else 'Не сдаст'
         })
-    df_pred = pd.DataFrame(predictions).sort_values('Вероятность_сдачи', ascending=False)
-    return df_pred
-
+    return pd.DataFrame(predictions).sort_values('Вероятность_сдачи', ascending=False)
 
 # ==================== FLASK МАРШРУТЫ ====================
-
-@server.route('/admin/train_model', methods=['POST'])
-def train_model_route():
+@server.route('/admin/train_weekly_models', methods=['POST'])
+def train_weekly_models_route():
     if 'user_id' not in session or session['user_id'] != 'Заведующий':
         return jsonify({'status': 'error', 'message': 'Доступ запрещён'}), 403
     try:
-        model, _ = train_prediction_model(MODEL_GRADES_FILE)
-        return jsonify({'status': 'success', 'message': 'Модель успешно обучена и сохранена.'})
+        df_weekly = train_weekly_models(GRADES_FILE)
+        load_weekly_models()
+        return jsonify({'status': 'success', 'message': f'Модели обучены и сохранены. Создано {len(df_weekly)} записей.'})
     except Exception as e:
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
-
-@server.route('/admin/predict/<course_name>', methods=['GET'])
-def predict_course_route(course_name):
-    if 'user_id' not in session:
-        return jsonify({'status': 'error', 'message': 'Не авторизован'}), 401
-    teacher = session['user_id']
-    if teacher != 'Заведующий' and teacher_dict.get(course_name) != teacher:
-        return jsonify({'status': 'error', 'message': 'У вас нет доступа к этому курсу'}), 403
-    if trained_model is None:
-        return jsonify({'status': 'error', 'message': 'Модель не обучена. Сначала обучите модель.'}), 400
-    try:
-        current_week = request.args.get('week', type=int)
-        df_pred = predict_current_course(course_name, current_week)
-        return jsonify({
-            'status': 'success',
-            'course': course_name,
-            'predictions': df_pred.to_dict(orient='records')
-        })
-    except Exception as e:
-        return jsonify({'status': 'error', 'message': str(e)}), 500
-
-
-@server.route('/admin/download_predictions/<course_name>', methods=['GET'])
-def download_predictions(course_name):
+@server.route('/admin/download_predictions/<course_name>/<int:week>', methods=['GET'])
+def download_predictions(course_name, week):
     if 'user_id' not in session:
         return jsonify({'status': 'error', 'message': 'Не авторизован'}), 401
     teacher = session['user_id']
     if teacher != 'Заведующий' and teacher_dict.get(course_name) != teacher:
         return jsonify({'status': 'error', 'message': 'Доступ запрещён'}), 403
-    if trained_model is None:
-        return jsonify({'status': 'error', 'message': 'Модель не обучена'}), 400
+    if week not in weekly_models:
+        return jsonify({'status': 'error', 'message': f'Модель для недели {week} не найдена'}), 400
     try:
-        df_pred = predict_current_course(course_name)
+        df_pred = predict_course_weekly(course_name, week)
         output = io.BytesIO()
         with pd.ExcelWriter(output, engine='openpyxl') as writer:
             df_pred.to_excel(writer, index=False, sheet_name='Predictions')
         output.seek(0)
-        return send_file(output, download_name=f"predictions_{course_name}.xlsx", as_attachment=True)
+        return send_file(output, download_name=f"predictions_{course_name}_week{week}.xlsx", as_attachment=True)
     except Exception as e:
         return jsonify({'status': 'error', 'message': str(e)}), 500
-
 
 # ==================== LAYOUTS ====================
 def home_page(current_teacher):
     semesters = ['Осенний', 'Весенний']
     teachers_list = [t for t in TEACHER_CREDENTIALS.keys() if t != 'Заведующий']
-
     admin_panel = html.Div()
     if current_teacher == 'Заведующий':
         admin_panel = html.Div([
             html.Hr(),
             html.H4("Управление моделью прогнозирования успеваемости студентов", style={'margin-top': '20px'}),
             dbc.Row([
-                dbc.Col(dbc.Button("Обучить модель", id="btn-train-model", color="primary", className="me-2")),
+                dbc.Col(dbc.Button("Обучить модели", id="btn-train-models", color="primary", className="me-2")),
             ], className="mb-3"),
             html.Div(id="model-status", style={'margin-top': '10px', 'font-weight': 'bold'}),
             html.H5("Прогноз для текущего курса", style={'margin-top': '20px'}),
             dbc.Row([
-                dbc.Col(
-                    dcc.Dropdown(id='predict-course-select', options=[{'label': c, 'value': c} for c in courses.keys()],
-                                 placeholder="Выберите курс")),
+                dbc.Col(dcc.Dropdown(id='predict-course-select', options=[{'label': c, 'value': c} for c in courses.keys()], placeholder="Выберите курс")),
+                dbc.Col(dcc.Dropdown(id='predict-week-select', options=[{'label': f'Неделя {w}', 'value': w} for w in range(1, 19)], value=1, placeholder="Неделя")),
                 dbc.Col(dbc.Button("Получить прогноз", id="btn-predict", color="success")),
                 dbc.Col(html.A("Скачать прогноз Excel", id="download-link", href="#", target="_blank", className="btn btn-warning", style={'color': 'black', 'textDecoration': 'none'})),
             ], className="mb-3"),
             html.Div(id="predictions-output"),
             html.Hr()
         ], style={'margin-bottom': '30px', 'padding': '15px', 'background': '#f0f8ff', 'border-radius': '10px'})
-
     return html.Div(style={'padding': '20px'}, children=[
-        html.Div(style={'display': 'flex', 'justify-content': 'space-between', 'align-items': 'center',
-                        'margin-bottom': '20px'}, children=[
-            html.H1("Активность преподавателя и студентов в электронной среде",
-                    style={'textAlign': 'center', 'margin': '0 auto'}),
+        html.Div(style={'display': 'flex', 'justify-content': 'space-between', 'align-items': 'center', 'margin-bottom': '20px'}, children=[
+            html.H1("Активность преподавателя и студентов в электронной среде", style={'textAlign': 'center', 'margin': '0 auto'}),
             html.Div([
                 html.Span(f"Вы вошли как {current_teacher}", style={'margin-right': '15px'}),
-                html.A("Выйти", href="/logout",
-                       style={'color': 'white', 'backgroundColor': '#dc3545', 'padding': '8px 12px',
-                              'borderRadius': '5px', 'textDecoration': 'none'}),
-                html.A("Страница преподавателя", href="/dash/teacher",
-                       style={'margin-left': '10px', 'color': 'white', 'backgroundColor': '#007BFF',
-                              'padding': '8px 12px', 'borderRadius': '5px', 'textDecoration': 'none'}),
-                html.A("Цифровой след", href="/dash/logs",
-                       style={'margin-left': '10px', 'color': 'white', 'backgroundColor': '#6f42c1',
-                              'padding': '8px 12px', 'borderRadius': '5px',
-                              'textDecoration': 'none'}) if current_teacher == 'Заведующий' else html.Div()
+                html.A("Выйти", href="/logout", style={'color': 'white', 'backgroundColor': '#dc3545', 'padding': '8px 12px', 'borderRadius': '5px', 'textDecoration': 'none'}),
+                html.A("Страница преподавателя", href="/dash/teacher", style={'margin-left': '10px', 'color': 'white', 'backgroundColor': '#007BFF', 'padding': '8px 12px', 'borderRadius': '5px', 'textDecoration': 'none'}),
+                html.A("Цифровой след", href="/dash/logs", style={'margin-left': '10px', 'color': 'white', 'backgroundColor': '#6f42c1', 'padding': '8px 12px', 'borderRadius': '5px', 'textDecoration': 'none'}) if current_teacher == 'Заведующий' else html.Div()
             ])
         ]),
         html.Div([
             html.Label("Выберите преподавателя:", style={'font-weight': 'bold', 'margin-top': '10px'}),
-            dcc.Dropdown(id='head-teacher-select', options=[{'label': t, 'value': t} for t in teachers_list],
-                         value=None, placeholder="Выберите преподавателя", clearable=False,
-                         style={'margin-bottom': '20px'})
+            dcc.Dropdown(id='head-teacher-select', options=[{'label': t, 'value': t} for t in teachers_list], value=None, placeholder="Выберите преподавателя", clearable=False, style={'margin-bottom': '20px'})
         ]) if current_teacher == 'Заведующий' else html.Div(),
         admin_panel,
         html.Div([
             html.Label("Выберите семестр:", style={'font-weight': 'bold', 'margin-top': '10px'}),
-            dcc.Dropdown(id='semester-dropdown', options=[{'label': s, 'value': s} for s in semesters],
-                         value=semesters[0] if semesters else '', clearable=False),
+            dcc.Dropdown(id='semester-dropdown', options=[{'label': s, 'value': s} for s in semesters], value=semesters[0] if semesters else '', clearable=False),
             html.Label("Выберите курс:", style={'font-weight': 'bold', 'margin-top': '10px'}),
             dcc.Dropdown(id='course-dropdown', options=[], value=None, clearable=False),
         ], style={'margin-bottom': '20px'}),
@@ -809,113 +776,61 @@ def home_page(current_teacher):
         html.Div(style={'margin-bottom': '20px'}, children=[
             html.H4("Статистика активности преподавателя в электронной среде:"),
             dbc.Row([
-                dbc.Col(html.Div(style={'background': '#f8f9fa', 'padding': '15px', 'border-radius': '5px'},
-                                 children=[
-                                     html.H5("Всего студентов", style={'color': '#6c757d', 'text-align': 'center'}),
-                                     html.H3(id='main-statist-unique-students',
-                                             style={'color': '#17a2b8', 'text-align': 'center'})]), width=3),
-                dbc.Col(html.Div(style={'background': '#f8f9fa', 'padding': '15px', 'border-radius': '5px'},
-                                 children=[html.H5("Ср. активность преподавателя (неделя)",
-                                                   style={'color': '#6c757d', 'text-align': 'center'}),
-                                           html.H3(id='main-statist-teacher-avg-activity',
-                                                   style={'color': '#fd7e14', 'text-align': 'center'})]), width=3),
-                dbc.Col(html.Div(style={'background': '#f8f9fa', 'padding': '15px', 'border-radius': '5px'},
-                                 children=[html.H5("Ср. активность студентов (неделя)",
-                                                   style={'color': '#6c757d', 'text-align': 'center'}),
-                                           html.H3(id='main-statist-students-avg-activity',
-                                                   style={'color': '#e83e8c', 'text-align': 'center'})]), width=3),
-                dbc.Col(html.Div(style={'background': '#f8f9fa', 'padding': '15px', 'border-radius': '5px'},
-                                 children=[html.H5("Ср. длина сессии преподавателя (мин)",
-                                                   style={'color': '#6c757d', 'text-align': 'center'}),
-                                           html.H3(id='main-statist-avg-session-length',
-                                                   style={'color': '#28a745', 'text-align': 'center'})]), width=3),
+                dbc.Col(html.Div(style={'background': '#f8f9fa', 'padding': '15px', 'border-radius': '5px'}, children=[html.H5("Всего студентов", style={'color': '#6c757d', 'text-align': 'center'}), html.H3(id='main-statist-unique-students', style={'color': '#17a2b8', 'text-align': 'center'})]), width=3),
+                dbc.Col(html.Div(style={'background': '#f8f9fa', 'padding': '15px', 'border-radius': '5px'}, children=[html.H5("Ср. активность преподавателя (неделя)", style={'color': '#6c757d', 'text-align': 'center'}), html.H3(id='main-statist-teacher-avg-activity', style={'color': '#fd7e14', 'text-align': 'center'})]), width=3),
+                dbc.Col(html.Div(style={'background': '#f8f9fa', 'padding': '15px', 'border-radius': '5px'}, children=[html.H5("Ср. активность студентов (неделя)", style={'color': '#6c757d', 'text-align': 'center'}), html.H3(id='main-statist-students-avg-activity', style={'color': '#e83e8c', 'text-align': 'center'})]), width=3),
+                dbc.Col(html.Div(style={'background': '#f8f9fa', 'padding': '15px', 'border-radius': '5px'}, children=[html.H5("Ср. длина сессии преподавателя (мин)", style={'color': '#6c757d', 'text-align': 'center'}), html.H3(id='main-statist-avg-session-length', style={'color': '#28a745', 'text-align': 'center'})]), width=3),
             ], className="g-2"),
             dbc.Row([
-                dbc.Col(html.Div(style={'background': '#f8f9fa', 'padding': '15px', 'border-radius': '5px'},
-                                 children=[html.H5("Количество сессий преподавателя",
-                                                   style={'color': '#6c757d', 'text-align': 'center'}),
-                                           html.H3(id='main-statist-total-sessions',
-                                                   style={'color': '#6f42c1', 'text-align': 'center'})]), width=3),
-                dbc.Col(html.Div(style={'background': '#f8f9fa', 'padding': '15px', 'border-radius': '5px'},
-                                 children=[html.H5("Ср. скорость обратной связи (часы)",
-                                                   style={'color': '#6c757d', 'text-align': 'center'}),
-                                           html.H3(id='main-statist-feedback-speed',
-                                                   style={'color': '#20c997', 'text-align': 'center'})]), width=3),
-                dbc.Col(html.Div(style={'background': '#f8f9fa', 'padding': '15px', 'border-radius': '5px'},
-                                 children=[html.H5("Зависимость активности",
-                                                   style={'color': '#6c757d', 'text-align': 'center'}),
-                                           html.H6(id='main-statist-correlation-text',
-                                                   style={'color': '#007bff', 'text-align': 'center',
-                                                          'margin-top': '5px'})]), width=6),
+                dbc.Col(html.Div(style={'background': '#f8f9fa', 'padding': '15px', 'border-radius': '5px'}, children=[html.H5("Количество сессий преподавателя", style={'color': '#6c757d', 'text-align': 'center'}), html.H3(id='main-statist-total-sessions', style={'color': '#6f42c1', 'text-align': 'center'})]), width=3),
+                dbc.Col(html.Div(style={'background': '#f8f9fa', 'padding': '15px', 'border-radius': '5px'}, children=[html.H5("Ср. скорость обратной связи (часы)", style={'color': '#6c757d', 'text-align': 'center'}), html.H3(id='main-statist-feedback-speed', style={'color': '#20c997', 'text-align': 'center'})]), width=3),
+                dbc.Col(html.Div(style={'background': '#f8f9fa', 'padding': '15px', 'border-radius': '5px'}, children=[html.H5("Зависимость активности", style={'color': '#6c757d', 'text-align': 'center'}), html.H6(id='main-statist-correlation-text', style={'color': '#007bff', 'text-align': 'center', 'margin-top': '5px'})]), width=6),
             ], className="g-2"),
         ]),
         html.Div(style={'margin-bottom': '20px'}, children=[
             html.H4("Интегрированная оценка педагогической активности:", style={'text-align': 'center'}),
             dbc.Row([
-                dbc.Col(html.Div(
-                    style={'background': '#f8f9fa', 'padding': '20px', 'border-radius': '10px', 'text-align': 'center',
-                           'border': '2px solid #dee2e6'},
-                    children=[html.H5("Общий уровень", style={'color': '#6c757d', 'margin-bottom': '15px'}),
-                              html.Div(id='pedagogical-activity-level',
-                                       style={'fontSize': '24px', 'fontWeight': 'bold', 'margin-bottom': '10px'}),
-                              html.Div(id='pedagogical-activity-description')]), width=8, style={'margin': '0 auto'})
+                dbc.Col(html.Div(style={'background': '#f8f9fa', 'padding': '20px', 'border-radius': '10px', 'text-align': 'center', 'border': '2px solid #dee2e6'}, children=[html.H5("Общий уровень", style={'color': '#6c757d', 'margin-bottom': '15px'}), html.Div(id='pedagogical-activity-level', style={'fontSize': '24px', 'fontWeight': 'bold', 'margin-bottom': '10px'}), html.Div(id='pedagogical-activity-description')]), width=8, style={'margin': '0 auto'})
             ]),
         ]),
         html.Div(style={'display': 'flex', 'flex-wrap': 'wrap', 'gap': '20px'}, children=[
             create_graph_with_tooltip('activity-graph', None, "Активность преподавателя по месяцам"),
             create_graph_with_tooltip('weekly-activity-graph', None, "Динамика активности преподавателя по неделям"),
             create_graph_with_tooltip('student-activity-graph', None, "Динамика активности студентов по неделям"),
-            create_graph_with_tooltip('unique-student-activity-graph', None,
-                                      "Количество активных уникальных студентов по неделям"),
-            create_graph_with_tooltip('unique-student-resources-graph', None,
-                                      "Количество используемых ресурсов по неделям"),
+            create_graph_with_tooltip('unique-student-activity-graph', None, "Количество активных уникальных студентов по неделям"),
+            create_graph_with_tooltip('unique-student-resources-graph', None, "Количество используемых ресурсов по неделям"),
             create_graph_with_tooltip('forum-activity-graph', None, "Активность на форумах"),
             create_graph_with_tooltip('weekly-sessions-graph', None, "Количество и длительность сессий преподавателя"),
             create_graph_with_tooltip('component-type-pie-chart', None, "Структура курса по компонентам"),
             html.Div(style={'display': 'flex', 'flex-direction': 'column', 'align-items': 'flex-start'}, children=[
-                dcc.Dropdown(id='week-dropdown', options=[], value=1, clearable=False,
-                             style={'margin': '10px 0', 'width': '250px'}),
-                create_graph_with_tooltip('weekly-teacher-activities-graph', None,
-                                          "Активность преподавателя по компонентам за неделю"),
+                dcc.Dropdown(id='week-dropdown', options=[], value=1, clearable=False, style={'margin': '10px 0', 'width': '250px'}),
+                create_graph_with_tooltip('weekly-teacher-activities-graph', None, "Активность преподавателя по компонентам за неделю"),
             ]),
             create_graph_with_tooltip('average-posts-weekly-graph', None, "Соотношение действий преподавателя к общим"),
-            create_graph_with_tooltip('student-teacher-activity-graph', None,
-                                      "Сравнение активности преподавателя и студентов"),
+            create_graph_with_tooltip('student-teacher-activity-graph', None, "Сравнение активности преподавателя и студентов"),
             create_graph_with_tooltip('hourly-activity-graph', None, "Средняя часовая активность"),
             create_graph_with_tooltip('course-updates-graph', None, "Активность обновления курса по неделям"),
         ]),
         html.Div(id='course-predictions-panel', style={'margin-top': '30px'}),
     ])
 
-
 def teacher_page(current_teacher):
     semesters = ['Осенний', 'Весенний']
     teachers_list = [t for t in TEACHER_CREDENTIALS.keys() if t != 'Заведующий']
-    empty_fig = go.Figure()
-    empty_fig.update_layout(title="Загрузка данных...", xaxis=dict(visible=False), yaxis=dict(visible=False))
+    empty_fig = go.Figure().update_layout(title="Загрузка данных...", xaxis=dict(visible=False), yaxis=dict(visible=False))
     return html.Div(style={'padding': '20px'}, children=[
-        html.Div(style={'display': 'flex', 'justify-content': 'space-between', 'align-items': 'center',
-                        'margin-bottom': '20px'}, children=[
+        html.Div(style={'display': 'flex', 'justify-content': 'space-between', 'align-items': 'center', 'margin-bottom': '20px'}, children=[
             html.H1("Страница преподавателя", style={'textAlign': 'center', 'margin': '0 auto'}),
             html.Div([
                 html.Span(f"Вы вошли как {current_teacher}", style={'margin-right': '15px'}),
-                html.A("Выйти", href="/logout",
-                       style={'color': 'white', 'backgroundColor': '#dc3545', 'padding': '8px 12px',
-                              'borderRadius': '5px', 'textDecoration': 'none'}),
-                html.A("Главная страница", href="/dash/",
-                       style={'margin-left': '10px', 'color': 'white', 'backgroundColor': '#007BFF',
-                              'padding': '8px 12px', 'borderRadius': '5px', 'textDecoration': 'none'}),
-                html.A("Цифровой след", href="/dash/logs",
-                       style={'margin-left': '10px', 'color': 'white', 'backgroundColor': '#6f42c1',
-                              'padding': '8px 12px', 'borderRadius': '5px',
-                              'textDecoration': 'none'}) if current_teacher == 'Заведующий' else html.Div()
+                html.A("Выйти", href="/logout", style={'color': 'white', 'backgroundColor': '#dc3545', 'padding': '8px 12px', 'borderRadius': '5px', 'textDecoration': 'none'}),
+                html.A("Главная страница", href="/dash/", style={'margin-left': '10px', 'color': 'white', 'backgroundColor': '#007BFF', 'padding': '8px 12px', 'borderRadius': '5px', 'textDecoration': 'none'}),
+                html.A("Цифровой след", href="/dash/logs", style={'margin-left': '10px', 'color': 'white', 'backgroundColor': '#6f42c1', 'padding': '8px 12px', 'borderRadius': '5px', 'textDecoration': 'none'}) if current_teacher == 'Заведующий' else html.Div()
             ])
         ]),
         html.Div([
             html.Label("Выберите преподавателя:", style={'font-weight': 'bold', 'margin-top': '10px'}),
-            dcc.Dropdown(id='head-teacher-select-page', options=[{'label': t, 'value': t} for t in teachers_list],
-                         value=None, placeholder="Выберите преподавателя", clearable=False,
-                         style={'margin-bottom': '20px'})
+            dcc.Dropdown(id='head-teacher-select-page', options=[{'label': t, 'value': t} for t in teachers_list], value=None, placeholder="Выберите преподавателя", clearable=False, style={'margin-bottom': '20px'})
         ]) if current_teacher == 'Заведующий' else html.Div(),
         dcc.Store(id='current-teacher-teacher-page', data=current_teacher),
         dcc.Store(id='selected-teacher-page', data=current_teacher if current_teacher != 'Заведующий' else None),
@@ -930,66 +845,40 @@ def teacher_page(current_teacher):
         html.Div(id='teacher-dashboards', style={'display': 'none'}, children=[
             html.Div([
                 html.Label("Выберите семестр:", style={'font-weight': 'bold', 'margin-top': '10px'}),
-                dcc.Dropdown(id='semester-dropdown-teacher', options=[{'label': s, 'value': s} for s in semesters],
-                             value=semesters[0] if semesters else '', clearable=False, style={'margin-bottom': '20px'})
+                dcc.Dropdown(id='semester-dropdown-teacher', options=[{'label': s, 'value': s} for s in semesters], value=semesters[0] if semesters else '', clearable=False, style={'margin-bottom': '20px'})
             ]),
             html.Div(style={'margin-bottom': '20px'}, children=[
                 html.H4("Статистика активности преподавателя в электронной среде:"),
                 dbc.Row([
-                    dbc.Col(html.Div(style={'background': '#f8f9fa', 'padding': '15px', 'border-radius': '5px'},
-                                     children=[html.H5("Количество курсов",
-                                                       style={'color': '#6c757d', 'text-align': 'center'}),
-                                               html.H3(id='teacher-courses-count',
-                                                       style={'color': '#007bff', 'text-align': 'center'})]), width=3),
-                    dbc.Col(html.Div(style={'background': '#f8f9fa', 'padding': '15px', 'border-radius': '5px'},
-                                     children=[
-                                         html.H5("Всего студентов", style={'color': '#6c757d', 'text-align': 'center'}),
-                                         html.H3(id='teacher-students-count',
-                                                 style={'color': '#17a2b8', 'text-align': 'center'})]), width=3),
-                    dbc.Col(html.Div(style={'background': '#f8f9fa', 'padding': '15px', 'border-radius': '5px'},
-                                     children=[html.H5("Ср. активность преподавателя (неделя)",
-                                                       style={'color': '#6c757d', 'text-align': 'center'}),
-                                               html.H3(id='teacher-avg-activity',
-                                                       style={'color': '#fd7e14', 'text-align': 'center'})]), width=3),
-                    dbc.Col(html.Div(style={'background': '#f8f9fa', 'padding': '15px', 'border-radius': '5px'},
-                                     children=[html.H5("Ср. активность студентов (неделя)",
-                                                       style={'color': '#6c757d', 'text-align': 'center'}),
-                                               html.H3(id='students-avg-activity',
-                                                       style={'color': '#e83e8c', 'text-align': 'center'})]), width=3),
+                    dbc.Col(html.Div(style={'background': '#f8f9fa', 'padding': '15px', 'border-radius': '5px'}, children=[html.H5("Количество курсов", style={'color': '#6c757d', 'text-align': 'center'}), html.H3(id='teacher-courses-count', style={'color': '#007bff', 'text-align': 'center'})]), width=3),
+                    dbc.Col(html.Div(style={'background': '#f8f9fa', 'padding': '15px', 'border-radius': '5px'}, children=[html.H5("Всего студентов", style={'color': '#6c757d', 'text-align': 'center'}), html.H3(id='teacher-students-count', style={'color': '#17a2b8', 'text-align': 'center'})]), width=3),
+                    dbc.Col(html.Div(style={'background': '#f8f9fa', 'padding': '15px', 'border-radius': '5px'}, children=[html.H5("Ср. активность преподавателя (неделя)", style={'color': '#6c757d', 'text-align': 'center'}), html.H3(id='teacher-avg-activity', style={'color': '#fd7e14', 'text-align': 'center'})]), width=3),
+                    dbc.Col(html.Div(style={'background': '#f8f9fa', 'padding': '15px', 'border-radius': '5px'}, children=[html.H5("Ср. активность студентов (неделя)", style={'color': '#6c757d', 'text-align': 'center'}), html.H3(id='students-avg-activity', style={'color': '#e83e8c', 'text-align': 'center'})]), width=3),
                 ]),
             ]),
             html.Div(style={'display': 'flex', 'gap': '20px', 'flex-wrap': 'wrap'}, children=[
                 create_graph_with_tooltip('activity-graph-teacher', empty_fig, "Активность по месяцам (все курсы)"),
-                create_graph_with_tooltip('weekly-activity-graph-teacher', empty_fig,
-                                          "Динамика по неделям (все курсы)"),
+                create_graph_with_tooltip('weekly-activity-graph-teacher', empty_fig, "Динамика по неделям (все курсы)"),
             ])
         ])
     ])
 
-
 def digital_footprint_page():
     return html.Div(style={'padding': '20px'}, children=[
-        html.Div(style={'display': 'flex', 'justify-content': 'space-between', 'align-items': 'center',
-                        'margin-bottom': '20px'}, children=[
+        html.Div(style={'display': 'flex', 'justify-content': 'space-between', 'align-items': 'center', 'margin-bottom': '20px'}, children=[
             html.H1("Цифровой след действий пользователей", style={'textAlign': 'center', 'margin': '0 auto'}),
             html.Div([
-                html.A("Главная страница", href="/dash/",
-                       style={'color': 'white', 'backgroundColor': '#007BFF', 'padding': '8px 12px',
-                              'borderRadius': '5px', 'textDecoration': 'none'}),
-                html.A("Выйти", href="/logout",
-                       style={'margin-left': '10px', 'color': 'white', 'backgroundColor': '#dc3545',
-                              'padding': '8px 12px', 'borderRadius': '5px', 'textDecoration': 'none'})
+                html.A("Главная страница", href="/dash/", style={'color': 'white', 'backgroundColor': '#007BFF', 'padding': '8px 12px', 'borderRadius': '5px', 'textDecoration': 'none'}),
+                html.A("Выйти", href="/logout", style={'margin-left': '10px', 'color': 'white', 'backgroundColor': '#dc3545', 'padding': '8px 12px', 'borderRadius': '5px', 'textDecoration': 'none'})
             ])
         ]),
         html.Div([
             html.Label("Фильтр по пользователю:"),
             dcc.Dropdown(id='filter-user', multi=False, placeholder="Все", style={'width': '300px'}),
             html.Label("Фильтр по действию (содержит):", style={'margin-top': '10px'}),
-            dcc.Input(id='filter-action', type='text', placeholder="Введите текст",
-                      style={'width': '300px', 'margin-bottom': '10px'}),
+            dcc.Input(id='filter-action', type='text', placeholder="Введите текст", style={'width': '300px', 'margin-bottom': '10px'}),
             html.Label("Диапазон дат:", style={'margin-top': '10px'}),
-            dcc.DatePickerRange(id='filter-date-range', start_date=None, end_date=None, display_format='YYYY-MM-DD',
-                                style={'margin-bottom': '10px'}),
+            dcc.DatePickerRange(id='filter-date-range', start_date=None, end_date=None, display_format='YYYY-MM-DD', style={'margin-bottom': '10px'}),
             html.Div([
                 html.Button("Сбросить фильтры", id='reset-filters', n_clicks=0, style={'margin-right': '10px'}),
                 html.Button("Экспорт в CSV", id='export-csv-btn', n_clicks=0),
@@ -999,15 +888,12 @@ def digital_footprint_page():
         html.Div(id='logs-table-container')
     ])
 
-
 app.layout = html.Div([
     dcc.Location(id='url', refresh=False),
     html.Div(id='page-content')
 ])
 
-
-# ==================== CALLBACK'и ====================
-
+# ==================== ОСНОВНЫЕ CALLBACK'и ====================
 @app.callback(
     Output('selected-teacher', 'data'),
     Input('head-teacher-select', 'value'),
@@ -1019,7 +905,6 @@ def update_selected_teacher_for_head(head_value, current_teacher):
         return head_value
     return current_teacher
 
-
 @app.callback(
     Output('selected-teacher-page', 'data'),
     Input('head-teacher-select-page', 'value'),
@@ -1030,7 +915,6 @@ def update_selected_teacher_page_for_head(head_value, current_teacher):
     if current_teacher == 'Заведующий' and head_value:
         return head_value
     return current_teacher
-
 
 @app.callback(
     Output('course-dropdown', 'options'),
@@ -1050,7 +934,6 @@ def update_course_options(selected_semester, teacher_name):
     available = [c for c in teacher_courses if c in allowed]
     return [{'label': c, 'value': c} for c in available]
 
-
 @app.callback(
     Output('course-dropdown', 'value'),
     Input('course-dropdown', 'options'),
@@ -1060,7 +943,6 @@ def set_default_course(options):
     if options and len(options) > 0:
         return options[0]['value']
     return None
-
 
 @app.callback(
     Output('week-dropdown', 'options'),
@@ -1073,7 +955,6 @@ def update_week_dropdown(selected_course):
     actual_weeks = get_actual_weeks_count(df, selected_course)
     return [{'label': f'Неделя {w}', 'value': w} for w in range(1, actual_weeks + 1)]
 
-
 @app.callback(
     Output('week-dropdown', 'value'),
     Input('course-dropdown', 'value'),
@@ -1083,7 +964,6 @@ def set_default_week(selected_course):
     if selected_course and selected_course in courses:
         return 1
     return None
-
 
 @app.callback(
     Output('main-statist-unique-students', 'children'),
@@ -1117,7 +997,6 @@ def update_main_stats(selected_course, total_students, avg_teacher_weekly,
         f"{correlation_text}",
     )
 
-
 # ==================== ГЛАВНЫЙ CALLBACK СО ВСЕМИ ГРАФИКАМИ ====================
 @app.callback(
     [Output('activity-graph', 'figure'), Output('weekly-activity-graph', 'figure'),
@@ -1145,35 +1024,26 @@ def update_main_graphs(selected_course, selected_week, teacher_name, current_use
         if not teacher_name or not selected_course or selected_course not in courses:
             empty = go.Figure().update_layout(title="Нет данных для отображения")
             return [empty] * 13 + [0] * 7 + ["", "", ""]
-
-        log_action(current_user, "Просмотр курса",
-                   f"Преподаватель: {teacher_name}, Курс: {selected_course}, неделя: {selected_week}", ip=ip,
-                   user_agent=ua)
-
+        log_action(current_user, "Просмотр курса", f"Преподаватель: {teacher_name}, Курс: {selected_course}, неделя: {selected_week}", ip=ip, user_agent=ua)
         df = courses[selected_course].copy()
         df['Время'] = pd.to_datetime(df['Время'], format="%d/%m/%y, %H:%M", errors='coerce')
-
         actual_weeks = get_actual_weeks_count(df, selected_course)
         week_ranges = get_week_ranges_for_course(selected_course)
         actual_week_ranges = week_ranges[:actual_weeks]
-
         df_teacher = df[df['Полное имя пользователя'] == teacher_name]
         df_students = df[df['Полное имя пользователя'] != teacher_name]
         if selected_course == 'ЭОК 9':
             df_students = df_students[df_students['Полное имя пользователя'].isin(students_to_keep_df_course9)]
         elif selected_course == 'ЭОК 10':
             df_students = df_students[df_students['Полное имя пользователя'].isin(students_to_keep_df_course10)]
-
-        # Месячная активность (адаптация под семестр)
         if (selected_course in SPRING_COURSES_2026 or selected_course in SPRING_COURSES_2025 or
-                selected_course in SPRING_COURSES_2024 or selected_course in SPRING_COURSES_2023 or
-                selected_course in SPRING_COURSES_2022 or selected_course in SPRING_COURSES_2021):
+            selected_course in SPRING_COURSES_2024 or selected_course in SPRING_COURSES_2023 or
+            selected_course in SPRING_COURSES_2022 or selected_course in SPRING_COURSES_2021):
             df_month = df_teacher[(df_teacher['Время'].dt.month >= 2) & (df_teacher['Время'].dt.month <= 5)]
             month_order = [2, 3, 4, 5]
         else:
             df_month = df_teacher[(df_teacher['Время'].dt.month >= 9) | (df_teacher['Время'].dt.month == 1)]
             month_order = [9, 10, 11, 12, 1]
-
         if not df_month.empty:
             df_month['Месяц'] = df_month['Время'].dt.month
             monthly = df_month.groupby('Месяц').size().reset_index(name='Количество событий')
@@ -1181,78 +1051,48 @@ def update_main_graphs(selected_course, selected_week, teacher_name, current_use
                          9: 'Сентябрь', 10: 'Октябрь', 11: 'Ноябрь', 12: 'Декабрь'}
             monthly['Месяц'] = monthly['Месяц'].map(month_map)
             monthly = monthly[monthly['Месяц'].notnull()]
-            monthly['Месяц'] = pd.Categorical(monthly['Месяц'],
-                                              categories=[month_map[m] for m in month_order if m in month_map],
-                                              ordered=True)
+            monthly['Месяц'] = pd.Categorical(monthly['Месяц'], categories=[month_map[m] for m in month_order if m in month_map], ordered=True)
             monthly = monthly.sort_values('Месяц')
-            activity_fig = go.Figure(
-                data=[go.Pie(labels=monthly['Месяц'], values=monthly['Количество событий'], hole=0.3, sort=False)])
+            activity_fig = go.Figure(data=[go.Pie(labels=monthly['Месяц'], values=monthly['Количество событий'], hole=0.3, sort=False)])
         else:
             activity_fig = go.Figure().update_layout(title="Нет данных за семестр")
         activity_fig.update_layout(title='Активность преподавателя по месяцам', **GRAPH_STYLE)
-
-        # Недельная активность преподавателя
         weekly_teacher = []
         for s, e in actual_week_ranges:
             cnt = len(df_teacher.query("@s <= Время <= @e"))
             weekly_teacher.append(cnt)
         events_teacher = pd.DataFrame({'Неделя': range(1, actual_weeks + 1), 'Количество событий': weekly_teacher})
         avg_teacher = events_teacher['Количество событий'].mean()
-        weekly_activity_fig = go.Figure(data=[go.Bar(x=events_teacher['Неделя'], y=events_teacher['Количество событий'],
-                                                     name='Активность преподавателя')])
-        weekly_activity_fig.add_trace(go.Scatter(x=events_teacher['Неделя'], y=[avg_teacher] * len(events_teacher),
-                                                 mode='lines', name='Средняя активность',
-                                                 line=dict(color='red', dash='dash')))
-        weekly_activity_fig.update_layout(title='Динамика активности преподавателя по неделям',
-                                          yaxis_title='Количество событий', xaxis_title='Неделя', **GRAPH_STYLE)
-
-        # Активность студентов
+        weekly_activity_fig = go.Figure(data=[go.Bar(x=events_teacher['Неделя'], y=events_teacher['Количество событий'], name='Активность преподавателя')])
+        weekly_activity_fig.add_trace(go.Scatter(x=events_teacher['Неделя'], y=[avg_teacher] * len(events_teacher), mode='lines', name='Средняя активность', line=dict(color='red', dash='dash')))
+        weekly_activity_fig.update_layout(title='Динамика активности преподавателя по неделям', yaxis_title='Количество событий', xaxis_title='Неделя', **GRAPH_STYLE)
         weekly_students = []
         for s, e in actual_week_ranges:
             cnt = len(df_students.query("@s <= Время <= @e"))
             weekly_students.append(cnt)
         events_students = pd.DataFrame({'Неделя': range(1, actual_weeks + 1), 'Количество событий': weekly_students})
         avg_students = events_students['Количество событий'].mean()
-        student_activity_fig = go.Figure(data=[
-            go.Bar(x=events_students['Неделя'], y=events_students['Количество событий'], name='Активность студентов')])
-        student_activity_fig.add_trace(go.Scatter(x=events_students['Неделя'], y=[avg_students] * len(events_students),
-                                                  mode='lines', name='Средняя активность',
-                                                  line=dict(color='red', dash='dash')))
-        student_activity_fig.update_layout(title='Динамика активности студентов по неделям',
-                                           yaxis_title='Количество событий', xaxis_title='Неделя', **GRAPH_STYLE)
-
-        # Уникальные активные студенты
+        student_activity_fig = go.Figure(data=[go.Bar(x=events_students['Неделя'], y=events_students['Количество событий'], name='Активность студентов')])
+        student_activity_fig.add_trace(go.Scatter(x=events_students['Неделя'], y=[avg_students] * len(events_students), mode='lines', name='Средняя активность', line=dict(color='red', dash='dash')))
+        student_activity_fig.update_layout(title='Динамика активности студентов по неделям', yaxis_title='Количество событий', xaxis_title='Неделя', **GRAPH_STYLE)
         unique_students_weekly = []
         for s, e in actual_week_ranges:
             uniq = df_students.query("@s <= Время <= @e")['Полное имя пользователя'].nunique()
             unique_students_weekly.append(uniq)
-        uniq_df = pd.DataFrame(
-            {'Неделя': range(1, actual_weeks + 1), 'Количество активных уникальных студентов': unique_students_weekly})
+        uniq_df = pd.DataFrame({'Неделя': range(1, actual_weeks + 1), 'Количество активных уникальных студентов': unique_students_weekly})
         total_unique = df_students['Полное имя пользователя'].nunique()
-        uniq_fig = go.Figure(data=[go.Bar(x=uniq_df['Неделя'], y=uniq_df['Количество активных уникальных студентов'],
-                                          name='Активные студенты')])
-        uniq_fig.add_trace(
-            go.Scatter(x=uniq_df['Неделя'], y=[total_unique] * len(uniq_df), mode='lines', name='Всего студентов',
-                       line=dict(color='green', dash='dash')))
-        uniq_fig.add_trace(go.Scatter(x=uniq_df['Неделя'],
-                                      y=[uniq_df['Количество активных уникальных студентов'].mean()] * len(uniq_df),
-                                      mode='lines', name='Средняя активность', line=dict(color='red', dash='dash')))
-        uniq_fig.update_layout(title='Динамика количества активных студентов по неделям',
-                               yaxis_title='Количество уникальных студентов', xaxis_title='Неделя', **GRAPH_STYLE)
-
-        # Уникальные ресурсы
+        uniq_fig = go.Figure(data=[go.Bar(x=uniq_df['Неделя'], y=uniq_df['Количество активных уникальных студентов'], name='Активные студенты')])
+        uniq_fig.add_trace(go.Scatter(x=uniq_df['Неделя'], y=[total_unique] * len(uniq_df), mode='lines', name='Всего студентов', line=dict(color='green', dash='dash')))
+        uniq_fig.add_trace(go.Scatter(x=uniq_df['Неделя'], y=[uniq_df['Количество активных уникальных студентов'].mean()] * len(uniq_df), mode='lines', name='Средняя активность', line=dict(color='red', dash='dash')))
+        uniq_fig.update_layout(title='Динамика количества активных студентов по неделям', yaxis_title='Количество уникальных студентов', xaxis_title='Неделя', **GRAPH_STYLE)
         resources_weekly = []
         for s, e in actual_week_ranges:
             uniq = df_students.query("@s <= Время <= @e")['Контекст события'].nunique()
             resources_weekly.append(uniq)
-        res_df = pd.DataFrame(
-            {'Неделя': range(1, actual_weeks + 1), 'Количество уникальных элементов': resources_weekly})
-        res_fig = px.bar(res_df, x='Неделя', y='Количество уникальных элементов',
-                         title='Динамика используемых ресурсов по неделям')
+        res_df = pd.DataFrame({'Неделя': range(1, actual_weeks + 1), 'Количество уникальных элементов': resources_weekly})
+        res_fig = px.bar(res_df, x='Неделя', y='Количество уникальных элементов', title='Динамика используемых ресурсов по неделям')
         res_fig.update_traces(name='Количество ресурсов')
         res_fig.update_layout(**GRAPH_STYLE)
-
-        # Форум
         df_forum = df[df['Компонент'].str.contains('Форум', case=False, na=False)]
         if not df_forum.empty:
             forum_posts = len(df_forum)
@@ -1260,69 +1100,46 @@ def update_main_graphs(selected_course, selected_week, teacher_name, current_use
             student_forum = len(df_forum[df_forum['Полное имя пользователя'] != teacher_name])
             participants = df_forum['Полное имя пользователя'].nunique()
             discussions = df_forum['Контекст события'].nunique()
-            forum_fig = go.Figure(data=[go.Bar(x=['Все сообщения', 'Преподаватель', 'Студенты'],
-                                               y=[forum_posts, teacher_forum, student_forum],
-                                               marker_color=['#1f77b4', '#ff7f0e', '#2ca02c'],
-                                               name='Количество сообщений')])
-            forum_fig.add_annotation(x=1, y=max(forum_posts, teacher_forum, student_forum) * 1.1,
-                                     text=f"Участников: {participants} | Обсуждений: {discussions}", showarrow=False)
+            forum_fig = go.Figure(data=[go.Bar(x=['Все сообщения', 'Преподаватель', 'Студенты'], y=[forum_posts, teacher_forum, student_forum], marker_color=['#1f77b4', '#ff7f0e', '#2ca02c'], name='Количество сообщений')])
+            forum_fig.add_annotation(x=1, y=max(forum_posts, teacher_forum, student_forum) * 1.1, text=f"Участников: {participants} | Обсуждений: {discussions}", showarrow=False)
             forum_fig.update_layout(title='Активность на форумах курса', **GRAPH_STYLE)
         else:
             forum_fig = go.Figure().update_layout(title="Нет данных о форумах", **GRAPH_STYLE)
-
-        # Сессии преподавателя
-        avg_sess_len, weekly_sessions, weekly_sess_durations = calculate_session_length(df, teacher_name,
-                                                                                        selected_course)
+        avg_sess_len, weekly_sessions, weekly_sess_durations = calculate_session_length(df, teacher_name, selected_course)
         sess_fig = go.Figure()
         if weekly_sess_durations:
             weeks_sorted = sorted([w for w in weekly_sess_durations.keys() if w <= actual_weeks])
             counts = [weekly_sessions.get(w, 0) for w in weeks_sorted]
             avg_durs = [np.mean(weekly_sess_durations[w]) if weekly_sess_durations[w] else 0 for w in weeks_sorted]
-            hover_texts = [
-                f"Неделя {w}<br>Сессий: {weekly_sessions.get(w, 0)}<br>Средняя длит: {avg_durs[i]:.1f} мин<br><br>Длительности сессий:<br>" +
-                "<br>".join([f"Сессия {j + 1}: {d:.1f} мин" for j, d in enumerate(weekly_sess_durations[w])])
-                for i, w in enumerate(weeks_sorted)]
-            sess_fig.add_trace(
-                go.Bar(x=weeks_sorted, y=counts, name='Количество сессий', hovertext=hover_texts, hoverinfo='text',
-                       marker_color='#6f42c1'))
-            sess_fig.add_trace(
-                go.Scatter(x=weeks_sorted, y=avg_durs, mode='lines+markers', name='Средняя длительность (мин)',
-                           line=dict(color='#fd7e14', width=3), yaxis='y2'))
-            sess_fig.update_layout(yaxis2=dict(title='Длительность (мин)', overlaying='y', side='right'),
-                                   title='Количество и длительность сессий преподавателя по неделям', **GRAPH_STYLE)
+            hover_texts = [f"Неделя {w}<br>Сессий: {weekly_sessions.get(w, 0)}<br>Средняя длит: {avg_durs[i]:.1f} мин<br><br>Длительности сессий:<br>" + "<br>".join([f"Сессия {j+1}: {d:.1f} мин" for j, d in enumerate(weekly_sess_durations[w])]) for i, w in enumerate(weeks_sorted)]
+            sess_fig.add_trace(go.Bar(x=weeks_sorted, y=counts, name='Количество сессий', hovertext=hover_texts, hoverinfo='text', marker_color='#6f42c1'))
+            sess_fig.add_trace(go.Scatter(x=weeks_sorted, y=avg_durs, mode='lines+markers', name='Средняя длительность (мин)', line=dict(color='#fd7e14', width=3), yaxis='y2'))
+            sess_fig.update_layout(yaxis2=dict(title='Длительность (мин)', overlaying='y', side='right'), title='Количество и длительность сессий преподавателя по неделям', **GRAPH_STYLE)
         else:
             sess_fig.update_layout(title="Нет данных о сессиях преподавателя", **GRAPH_STYLE)
-
-        # Активность преподавателя по компонентам за выбранную неделю
         teacher_weekly_activities = []
         for i, (s, e) in enumerate(actual_week_ranges, 1):
             temp = df_teacher.query("@s <= Время <= @e")
             temp['Неделя'] = i
             teacher_weekly_activities.append(temp)
         teacher_weeks = pd.concat(teacher_weekly_activities) if teacher_weekly_activities else pd.DataFrame()
-        bad_components = ['Система', 'Отчет по пользователю', 'Отчет по оценкам', 'Журнал событий',
-                          'Комментарии к ответам', 'Отчет о деятельности', 'Обзорный отчет', 'Ответ в виде файла',
-                          'Корзина']
+        bad_components = ['Система', 'Отчет по пользователю', 'Отчет по оценкам', 'Журнал событий', 'Комментарии к ответам', 'Отчет о деятельности', 'Обзорный отчет', 'Ответ в виде файла', 'Корзина']
         if not teacher_weeks.empty:
             teacher_weeks = teacher_weeks[~teacher_weeks['Компонент'].isin(bad_components)]
             week_data = teacher_weeks[teacher_weeks['Неделя'] == selected_week]
             if not week_data.empty:
                 comp_counts = week_data['Компонент'].value_counts().reset_index()
                 comp_counts.columns = ['Компонент', 'Количество активностей']
-                comp_fig = px.bar(comp_counts, x='Компонент', y='Количество активностей',
-                                  title=f'Количество активностей преподавателя по компонентам (Неделя {selected_week})')
+                comp_fig = px.bar(comp_counts, x='Компонент', y='Количество активностей', title=f'Количество активностей преподавателя по компонентам (Неделя {selected_week})')
             else:
                 comp_fig = go.Figure().update_layout(title=f'Нет активности на неделе {selected_week}')
         else:
             comp_fig = go.Figure().update_layout(title='Нет данных об активности преподавателя')
         comp_fig.update_layout(**GRAPH_STYLE)
-
-        # Соотношение действий
         if not teacher_weeks.empty:
-            total_actions_teacher = teacher_weeks.groupby('Неделя').size().reindex(range(1, actual_weeks + 1),
-                                                                                   fill_value=0)
+            total_actions_teacher = teacher_weeks.groupby('Неделя').size().reindex(range(1, actual_weeks+1), fill_value=0)
         else:
-            total_actions_teacher = pd.Series([0] * actual_weeks, index=range(1, actual_weeks + 1))
+            total_actions_teacher = pd.Series([0]*actual_weeks, index=range(1, actual_weeks+1))
         student_weeks_list = []
         for i, (s, e) in enumerate(actual_week_ranges, 1):
             tmp = df_students.query("@s <= Время <= @e")
@@ -1330,84 +1147,48 @@ def update_main_graphs(selected_course, selected_week, teacher_name, current_use
             student_weeks_list.append(tmp)
         student_weeks = pd.concat(student_weeks_list) if student_weeks_list else pd.DataFrame()
         if not student_weeks.empty:
-            total_actions_students = student_weeks.groupby('Неделя').size().reindex(range(1, actual_weeks + 1),
-                                                                                    fill_value=0)
+            total_actions_students = student_weeks.groupby('Неделя').size().reindex(range(1, actual_weeks+1), fill_value=0)
         else:
-            total_actions_students = pd.Series([0] * actual_weeks, index=range(1, actual_weeks + 1))
+            total_actions_students = pd.Series([0]*actual_weeks, index=range(1, actual_weeks+1))
         ratio = total_actions_teacher / (total_actions_teacher + total_actions_students).replace(0, np.nan)
-        ratio_df = pd.DataFrame(
-            {'Неделя': range(1, actual_weeks + 1), 'Соотношение действий преподавателя': ratio.values})
-        ratio_fig = px.bar(ratio_df, x='Неделя', y='Соотношение действий преподавателя',
-                           title='Динамика соотношения действий преподавателя внутри курса к общему количеству действий всех пользователей')
+        ratio_df = pd.DataFrame({'Неделя': range(1, actual_weeks+1), 'Соотношение действий преподавателя': ratio.values})
+        ratio_fig = px.bar(ratio_df, x='Неделя', y='Соотношение действий преподавателя', title='Динамика соотношения действий преподавателя внутри курса к общему количеству действий всех пользователей')
         ratio_fig.update_layout(**GRAPH_STYLE)
-
-        # Сравнение активности
         compare_fig = go.Figure()
-        compare_fig.add_trace(go.Scatter(x=events_teacher['Неделя'], y=events_teacher['Количество событий'],
-                                         mode='lines+markers', name='Активность преподавателя',
-                                         line=dict(color='blue')))
-        compare_fig.add_trace(go.Scatter(x=events_students['Неделя'], y=events_students['Количество событий'],
-                                         mode='lines+markers', name='Активность студентов', line=dict(color='red')))
-        compare_fig.update_layout(title='Сравнение активности студентов и преподавателя по неделям',
-                                  xaxis_title='Неделя', yaxis_title='Количество событий', **GRAPH_STYLE)
-
-        # Компоненты курса
+        compare_fig.add_trace(go.Scatter(x=events_teacher['Неделя'], y=events_teacher['Количество событий'], mode='lines+markers', name='Активность преподавателя', line=dict(color='blue')))
+        compare_fig.add_trace(go.Scatter(x=events_students['Неделя'], y=events_students['Количество событий'], mode='lines+markers', name='Активность студентов', line=dict(color='red')))
+        compare_fig.update_layout(title='Сравнение активности студентов и преподавателя по неделям', xaxis_title='Неделя', yaxis_title='Количество событий', **GRAPH_STYLE)
         component_counts = df['Компонент'].value_counts()
         filtered_counts = component_counts[~component_counts.index.isin(bad_components)]
-        pie_fig = go.Figure(data=[go.Pie(labels=filtered_counts.index, values=filtered_counts.values,
-                                         hoverinfo='label+percent', textinfo='label+percent',
-                                         pull=[0.1] * len(filtered_counts))])
+        pie_fig = go.Figure(data=[go.Pie(labels=filtered_counts.index, values=filtered_counts.values, hoverinfo='label+percent', textinfo='label+percent', pull=[0.1]*len(filtered_counts))])
         pie_fig.update_traces(textposition='inside')
         pie_fig.update_layout(title='Количество компонентов разного типа в курсе', showlegend=True, **GRAPH_STYLE)
-
-        # Часовая активность
         df['Час'] = df['Время'].dt.hour
         hourly = df.groupby(['Час', 'Полное имя пользователя']).size().reset_index(name='Кол-во')
-        teacher_hourly = hourly[hourly['Полное имя пользователя'] == teacher_name].groupby('Час')[
-            'Кол-во'].mean().reset_index()
-        student_hourly = hourly[hourly['Полное имя пользователя'] != teacher_name].groupby('Час')[
-            'Кол-во'].mean().reset_index()
+        teacher_hourly = hourly[hourly['Полное имя пользователя'] == teacher_name].groupby('Час')['Кол-во'].mean().reset_index()
+        student_hourly = hourly[hourly['Полное имя пользователя'] != teacher_name].groupby('Час')['Кол-во'].mean().reset_index()
         hour_fig = go.Figure()
         if not teacher_hourly.empty:
-            hour_fig.add_trace(
-                go.Bar(x=teacher_hourly['Час'], y=teacher_hourly['Кол-во'], name='Активность преподавателя',
-                       marker_color='blue'))
+            hour_fig.add_trace(go.Bar(x=teacher_hourly['Час'], y=teacher_hourly['Кол-во'], name='Активность преподавателя', marker_color='blue'))
         if not student_hourly.empty:
-            hour_fig.add_trace(go.Bar(x=student_hourly['Час'], y=student_hourly['Кол-во'], name='Активность студентов',
-                                      marker_color='red'))
-        hour_fig.update_layout(title='Средняя часовая активность преподавателя и студентов', xaxis_title='Часы',
-                               yaxis_title='Среднее количество событий', **GRAPH_STYLE)
+            hour_fig.add_trace(go.Bar(x=student_hourly['Час'], y=student_hourly['Кол-во'], name='Активность студентов', marker_color='red'))
+        hour_fig.update_layout(title='Средняя часовая активность преподавателя и студентов', xaxis_title='Часы', yaxis_title='Среднее количество событий', **GRAPH_STYLE)
         hour_fig.update_xaxes(tickmode='linear', dtick=1)
-
-        # Обновления курса
-        update_events = ['Модуль курса обновлен', 'Курс обновлен', 'Выполнение элемента курса обновлено',
-                         'Событие календаря обновлено', 'Grade item updated', 'Question updated',
-                         'Раздел курса обновлен',
-                         'Представленный ответ обновлен.', 'Состояние представленного ответа было обновлено.',
-                         'Сообщение обновлено', 'Quiz attempt regraded']
+        update_events = ['Модуль курса обновлен', 'Курс обновлен', 'Выполнение элемента курса обновлено', 'Событие календаря обновлено', 'Grade item updated', 'Question updated', 'Раздел курса обновлен', 'Представленный ответ обновлен.', 'Состояние представленного ответа было обновлено.', 'Сообщение обновлено', 'Quiz attempt regraded']
         updates = df[df['Название события'].isin(update_events)]
         weekly_updates = []
         for i, (s, e) in enumerate(actual_week_ranges, 1):
             cnt = len(updates.query("@s <= Время <= @e"))
             weekly_updates.append(cnt)
-        updates_df = pd.DataFrame({'Неделя': range(1, actual_weeks + 1), 'Количество обновлений': weekly_updates})
+        updates_df = pd.DataFrame({'Неделя': range(1, actual_weeks+1), 'Количество обновлений': weekly_updates})
         total_updates = updates_df['Количество обновлений'].sum()
         avg_updates = updates_df['Количество обновлений'].mean()
-        updates_fig = go.Figure(data=[
-            go.Bar(x=updates_df['Неделя'], y=updates_df['Количество обновлений'], name='Обновления',
-                   marker_color='#17a2b8')])
-        updates_fig.add_trace(go.Scatter(x=updates_df['Неделя'], y=[avg_updates] * len(updates_df), mode='lines',
-                                         name=f'Среднее: {avg_updates:.1f}',
-                                         line=dict(color='red', dash='dash', width=2)))
-        max_updates = max(updates_df['Количество обновлений']) if max(updates_df['Количество обновлений']) > 0 else 1
-        updates_fig.add_annotation(x=0.5, y=max_updates * 1.15, text=f"Всего обновлений за семестр: {total_updates}",
-                                   showarrow=False, font=dict(size=14), bgcolor="lightblue", bordercolor="black",
-                                   borderwidth=1, xref="paper", xanchor="center")
+        updates_fig = go.Figure(data=[go.Bar(x=updates_df['Неделя'], y=updates_df['Количество обновлений'], name='Обновления', marker_color='#17a2b8')])
+        updates_fig.add_trace(go.Scatter(x=updates_df['Неделя'], y=[avg_updates]*len(updates_df), mode='lines', name=f'Среднее: {avg_updates:.1f}', line=dict(color='red', dash='dash', width=2)))
+        max_updates = max(updates_df['Количество обновлений']) if max(updates_df['Количество обновлений'])>0 else 1
+        updates_fig.add_annotation(x=0.5, y=max_updates*1.15, text=f"Всего обновлений за семестр: {total_updates}", showarrow=False, font=dict(size=14), bgcolor="lightblue", bordercolor="black", borderwidth=1, xref="paper", xanchor="center")
         updates_fig.update_layout(title='Активность обновления курса по неделям', **GRAPH_STYLE)
-
-        # Корреляция
-        df_act = pd.DataFrame(
-            {'Преподаватель': events_teacher['Количество событий'], 'Студенты': events_students['Количество событий']})
+        df_act = pd.DataFrame({'Преподаватель': events_teacher['Количество событий'], 'Студенты': events_students['Количество событий']})
         if len(df_act) > 2:
             stat_t, p_t = shapiro(df_act['Преподаватель'])
             stat_s, p_s = shapiro(df_act['Студенты'])
@@ -1416,12 +1197,9 @@ def update_main_graphs(selected_course, selected_week, teacher_name, current_use
             else:
                 corr, p_corr = pearsonr(df_act['Преподаватель'], df_act['Студенты'])
             if p_corr < 0.05:
-                if abs(corr) < 0.3:
-                    interp = "слабая"
-                elif abs(corr) >= 0.7:
-                    interp = "сильная"
-                else:
-                    interp = "умеренная"
+                if abs(corr) < 0.3: interp = "слабая"
+                elif abs(corr) >= 0.7: interp = "сильная"
+                else: interp = "умеренная"
                 direction = "прямая" if corr > 0 else "обратная"
                 corr_text = f"{interp} {direction} зависимость ({corr:.3f})"
             else:
@@ -1429,8 +1207,6 @@ def update_main_graphs(selected_course, selected_week, teacher_name, current_use
         else:
             corr = 0
             corr_text = "Недостаточно данных"
-
-        # Педагогическая активность
         metrics = {
             'weekly_activity': avg_teacher,
             'session_length': avg_sess_len,
@@ -1439,11 +1215,8 @@ def update_main_graphs(selected_course, selected_week, teacher_name, current_use
             'feedback_speed': calculate_feedback_speed(df, teacher_name)
         }
         ped = calculate_pedagogical_activity_level(metrics)
-        ped_level = html.Div([html.H4("Уровень педагогической активности:", style={'margin-bottom': '10px'}),
-                              dbc.Badge(ped['level'], color=ped['color'],
-                                        style={'fontSize': '20px', 'padding': '10px'})])
+        ped_level = html.Div([html.H4("Уровень педагогической активности:", style={'margin-bottom': '10px'}), dbc.Badge(ped['level'], color=ped['color'], style={'fontSize': '20px', 'padding': '10px'})])
         ped_desc = html.Div([html.P(ped['description'], style={'fontStyle': 'italic', 'margin-top': '10px'})])
-
         return (activity_fig, weekly_activity_fig, student_activity_fig, uniq_fig, res_fig, forum_fig,
                 sess_fig, comp_fig, ratio_fig, compare_fig, pie_fig, hour_fig, updates_fig,
                 total_unique, avg_teacher, avg_students, avg_sess_len, weekly_sessions, metrics['feedback_speed'],
@@ -1452,7 +1225,6 @@ def update_main_graphs(selected_course, selected_week, teacher_name, current_use
         log_action(current_user, "Ошибка в графиках", f"{str(e)}", error=True, ip=ip, user_agent=ua)
         empty = go.Figure().update_layout(title="Ошибка загрузки данных")
         return [empty] * 13 + [0] * 7 + ["", "", ""]
-
 
 # ==================== CALLBACKS ДЛЯ СТРАНИЦЫ ПРЕПОДАВАТЕЛЯ ====================
 @app.callback(
@@ -1467,10 +1239,7 @@ def update_teacher_dashboards(selected_semester, teacher_name, current_user):
         if not teacher_name:
             empty = go.Figure().update_layout(title="Нет данных")
             return empty, empty, 0, 0
-
-        log_action(current_user, "Просмотр дашбордов преподавателя",
-                   f"Преподаватель: {teacher_name}, Семестр: {selected_semester}", ip=ip, user_agent=ua)
-
+        log_action(current_user, "Просмотр дашбордов преподавателя", f"Преподаватель: {teacher_name}, Семестр: {selected_semester}", ip=ip, user_agent=ua)
         teacher_courses = [c for c, t in teacher_dict.items() if t == teacher_name]
         if selected_semester == 'Весенний':
             allowed = (SPRING_COURSES_2026 + SPRING_COURSES_2025 + SPRING_COURSES_2024 +
@@ -1484,31 +1253,24 @@ def update_teacher_dashboards(selected_semester, teacher_name, current_user):
         if not teacher_courses:
             empty = go.Figure().update_layout(title="Нет курсов в этом семестре")
             return empty, empty, 0, 0
-
         total_weeks = len(week_ranges)
         total_teacher_weekly = [0] * total_weeks
         total_student_weekly = [0] * total_weeks
         monthly_teacher_events = []
-
         for course in teacher_courses:
             df_course = courses[course]
             if df_course.empty:
                 continue
-
             df_course['Время'] = pd.to_datetime(df_course['Время'], format="%d/%m/%y, %H:%M", errors='coerce')
             df_teacher_course = df_course[df_course['Полное имя пользователя'] == teacher_name]
             df_students_course = df_course[df_course['Полное имя пользователя'] != teacher_name]
-
             if selected_semester == 'Весенний':
-                df_month = df_teacher_course[
-                    (df_teacher_course['Время'].dt.month >= 2) & (df_teacher_course['Время'].dt.month <= 5)]
+                df_month = df_teacher_course[(df_teacher_course['Время'].dt.month >= 2) & (df_teacher_course['Время'].dt.month <= 5)]
             else:
-                df_month = df_teacher_course[
-                    (df_teacher_course['Время'].dt.month >= 9) | (df_teacher_course['Время'].dt.month == 1)]
+                df_month = df_teacher_course[(df_teacher_course['Время'].dt.month >= 9) | (df_teacher_course['Время'].dt.month == 1)]
             if not df_month.empty:
                 df_month['Месяц'] = df_month['Время'].dt.month
                 monthly_teacher_events.extend(df_month['Месяц'].tolist())
-
             week_ranges_course = get_week_ranges_for_course(course)
             actual_weeks_course = get_actual_weeks_count(df_course, course)
             for week_idx in range(min(actual_weeks_course, total_weeks)):
@@ -1517,11 +1279,9 @@ def update_teacher_dashboards(selected_semester, teacher_name, current_user):
                 total_teacher_weekly[week_idx] += cnt_teacher
                 cnt_student = len(df_students_course.query("@s <= Время <= @e"))
                 total_student_weekly[week_idx] += cnt_student
-
         if sum(total_teacher_weekly) == 0:
             empty = go.Figure().update_layout(title="Нет активности преподавателя")
             return empty, empty, 0, 0
-
         if monthly_teacher_events:
             monthly_counts = pd.Series(monthly_teacher_events).value_counts().reset_index()
             monthly_counts.columns = ['Месяц', 'Количество событий']
@@ -1536,30 +1296,21 @@ def update_teacher_dashboards(selected_semester, teacher_name, current_user):
             month_labels = [month_map[m] for m in month_order if m in month_map]
             monthly_counts['Месяц'] = pd.Categorical(monthly_counts['Месяц'], categories=month_labels, ordered=True)
             monthly_counts = monthly_counts.sort_values('Месяц')
-            activity_fig = go.Figure(
-                data=[go.Pie(labels=monthly_counts['Месяц'], values=monthly_counts['Количество событий'], hole=0.3)])
+            activity_fig = go.Figure(data=[go.Pie(labels=monthly_counts['Месяц'], values=monthly_counts['Количество событий'], hole=0.3)])
         else:
             activity_fig = go.Figure().update_layout(title="Нет данных по месяцам")
         activity_fig.update_layout(title='Активность преподавателя по месяцам (все курсы)', **GRAPH_STYLE)
-
         weeks = list(range(1, total_weeks + 1))
         avg_teacher = np.mean(total_teacher_weekly)
         weekly_fig = go.Figure(data=[go.Bar(x=weeks, y=total_teacher_weekly, name='Активность преподавателя')])
-        weekly_fig.add_trace(go.Scatter(x=weeks, y=[avg_teacher] * total_weeks,
-                                        mode='lines', name='Средняя активность',
-                                        line=dict(color='red', dash='dash')))
-        weekly_fig.update_layout(title='Динамика активности преподавателя по неделям (все курсы)',
-                                 yaxis_title='Суммарное количество событий', xaxis_title='Неделя семестра',
-                                 xaxis=dict(tickmode='linear', dtick=1), **GRAPH_STYLE)
-
+        weekly_fig.add_trace(go.Scatter(x=weeks, y=[avg_teacher] * total_weeks, mode='lines', name='Средняя активность', line=dict(color='red', dash='dash')))
+        weekly_fig.update_layout(title='Динамика активности преподавателя по неделям (все курсы)', yaxis_title='Суммарное количество событий', xaxis_title='Неделя семестра', xaxis=dict(tickmode='linear', dtick=1), **GRAPH_STYLE)
         avg_student = np.mean(total_student_weekly) if total_student_weekly else 0
         return activity_fig, weekly_fig, avg_teacher, avg_student
-
     except Exception as e:
         log_action(current_user, "Ошибка в дашбордах преподавателя", f"{str(e)}", error=True, ip=ip, user_agent=ua)
         empty = go.Figure().update_layout(title="Ошибка загрузки")
         return empty, empty, 0, 0
-
 
 @app.callback(
     [Output('teacher-info-panel', 'style'), Output('teacher-dashboards', 'style'),
@@ -1577,7 +1328,6 @@ def toggle_panels(info_clicks, dashboard_clicks):
     else:
         return {'display': 'none'}, {'display': 'block'}, "btn btn-primary", "btn btn-primary active"
 
-
 @app.callback(
     Output('teacher-info-panel', 'children'),
     [Input('selected-teacher-page', 'data'), Input('avg-activity-store', 'data'),
@@ -1588,40 +1338,14 @@ def update_teacher_info(teacher_name, avg_teacher, avg_student, current_user):
     try:
         if not teacher_name:
             return html.Div("Нет данных")
-        log_action(current_user, "Просмотр информации преподавателя", f"Преподаватель: {teacher_name}", ip=ip,
-                   user_agent=ua)
-
+        log_action(current_user, "Просмотр информации преподавателя", f"Преподаватель: {teacher_name}", ip=ip, user_agent=ua)
         teacher_info = {
-            'Преподаватель 1': {'avatar': 'https://img.icons8.com/color/96/000000/user-male-circle--v1.png',
-                                'position': 'Преподаватель информатики и вычислительной техники',
-                                'education': 'Кандидат педагогических наук', 'experience': '9 лет преподавания',
-                                'placeOfWork': 'Кафедра прикладной математики и анализа данных, доцент',
-                                'phone': '+7 (123) 456-78-90', 'email': 'prep1@university.edu'},
-            'Преподаватель 2': {'avatar': 'https://img.icons8.com/color/96/000000/user-female-circle--v1.png',
-                                'position': 'Преподаватель математики',
-                                'education': 'Кандидат педагогических наук', 'experience': '31 год преподавания',
-                                'placeOfWork': 'Кафедра фундаментального естественнонаучного образования, доцент',
-                                'phone': '+7 (234) 567-89-01', 'email': 'prep2@university.edu'},
-            'Преподаватель 3': {'avatar': 'https://img.icons8.com/color/96/000000/user-female-circle--v1.png',
-                                'position': 'Преподаватель математического анализа и аналитической геометрии',
-                                'education': 'Кандидат физико-математических наук', 'experience': '12 лет преподавания',
-                                'placeOfWork': 'Кафедра прикладной математики и анализа данных, доцент',
-                                'phone': '+7 (345) 678-90-12', 'email': 'prep3@university.edu'},
-            'Преподаватель 4': {'avatar': 'https://img.icons8.com/color/96/000000/user-female-circle--v1.png',
-                                'position': 'Преподаватель математической логики и теории алгоритмов',
-                                'education': 'Доктор педагогических наук', 'experience': '21 год преподавания',
-                                'placeOfWork': 'Кафедра прикладной математики и анализа данных, профессор',
-                                'phone': '+7 (456) 789-01-23', 'email': 'prep4@university.edu'},
-            'Преподаватель 5': {'avatar': 'https://img.icons8.com/color/96/000000/user-female-circle--v1.png',
-                                'position': 'Преподаватель математической логики и теории алгоритмов',
-                                'education': 'Доктор педагогических наук', 'experience': '21 год преподавания',
-                                'placeOfWork': 'Кафедра прикладной математики и анализа данных, профессор',
-                                'phone': '+7 (456) 789-01-23', 'email': 'prep5@university.edu'},
-            'Преподаватель 6': {'avatar': 'https://img.icons8.com/color/96/000000/user-female-circle--v1.png',
-                                'position': 'Преподаватель математической логики и теории алгоритмов',
-                                'education': 'Доктор педагогических наук', 'experience': '21 год преподавания',
-                                'placeOfWork': 'Кафедра прикладной математики и анализа данных, профессор',
-                                'phone': '+7 (456) 789-01-23', 'email': 'prep6@university.edu'}
+            'Преподаватель 1': {'avatar': 'https://img.icons8.com/color/96/000000/user-male-circle--v1.png', 'position': 'Преподаватель информатики и вычислительной техники', 'education': 'Кандидат педагогических наук', 'experience': '9 лет преподавания', 'placeOfWork': 'Кафедра прикладной математики и анализа данных, доцент', 'phone': '+7 (123) 456-78-90', 'email': 'prep1@university.edu'},
+            'Преподаватель 2': {'avatar': 'https://img.icons8.com/color/96/000000/user-female-circle--v1.png', 'position': 'Преподаватель математики', 'education': 'Кандидат педагогических наук', 'experience': '31 год преподавания', 'placeOfWork': 'Кафедра фундаментального естественнонаучного образования, доцент', 'phone': '+7 (234) 567-89-01', 'email': 'prep2@university.edu'},
+            'Преподаватель 3': {'avatar': 'https://img.icons8.com/color/96/000000/user-female-circle--v1.png', 'position': 'Преподаватель математического анализа и аналитической геометрии', 'education': 'Кандидат физико-математических наук', 'experience': '12 лет преподавания', 'placeOfWork': 'Кафедра прикладной математики и анализа данных, доцент', 'phone': '+7 (345) 678-90-12', 'email': 'prep3@university.edu'},
+            'Преподаватель 4': {'avatar': 'https://img.icons8.com/color/96/000000/user-female-circle--v1.png', 'position': 'Преподаватель математической логики и теории алгоритмов', 'education': 'Доктор педагогических наук', 'experience': '21 год преподавания', 'placeOfWork': 'Кафедра прикладной математики и анализа данных, профессор', 'phone': '+7 (456) 789-01-23', 'email': 'prep4@university.edu'},
+            'Преподаватель 5': {'avatar': 'https://img.icons8.com/color/96/000000/user-female-circle--v1.png', 'position': 'Преподаватель математической логики и теории алгоритмов', 'education': 'Доктор педагогических наук', 'experience': '21 год преподавания', 'placeOfWork': 'Кафедра прикладной математики и анализа данных, профессор', 'phone': '+7 (456) 789-01-23', 'email': 'prep5@university.edu'},
+            'Преподаватель 6': {'avatar': 'https://img.icons8.com/color/96/000000/user-female-circle--v1.png', 'position': 'Преподаватель математической логики и теории алгоритмов', 'education': 'Доктор педагогических наук', 'experience': '21 год преподавания', 'placeOfWork': 'Кафедра прикладной математики и анализа данных, профессор', 'phone': '+7 (456) 789-01-23', 'email': 'prep6@university.edu'}
         }
         info = teacher_info.get(teacher_name, {})
         teacher_courses = [c for c, t in teacher_dict.items() if t == teacher_name]
@@ -1631,49 +1355,34 @@ def update_teacher_info(teacher_name, avg_teacher, avg_student, current_user):
             if df.empty:
                 continue
             if course in ['ЭОК 9']:
-                students = df[df['Полное имя пользователя'].isin(students_to_keep_df_course9)][
-                    'Полное имя пользователя'].nunique()
+                students = df[df['Полное имя пользователя'].isin(students_to_keep_df_course9)]['Полное имя пользователя'].nunique()
             elif course in ['ЭОК 10']:
-                students = df[df['Полное имя пользователя'].isin(students_to_keep_df_course10)][
-                    'Полное имя пользователя'].nunique()
+                students = df[df['Полное имя пользователя'].isin(students_to_keep_df_course10)]['Полное имя пользователя'].nunique()
             else:
                 students = df[df['Полное имя пользователя'] != teacher_name]['Полное имя пользователя'].nunique()
             total_students += students
-
         courses_count = len(teacher_courses)
         avg_teacher_val = float(avg_teacher) if avg_teacher is not None else 0
         avg_student_val = float(avg_student) if avg_student is not None else 0
-
         return html.Div([
             html.Div(style={'display': 'flex', 'align-items': 'center', 'margin-bottom': '20px'}, children=[
-                html.Img(src=info.get('avatar', ''),
-                         style={'width': '100px', 'height': '100px', 'border-radius': '50%', 'margin-right': '20px'}),
-                html.Div([html.H3(teacher_name), html.P(info.get('position', '')), html.P(info.get('education', '')),
-                          html.P(f"Опыт преподавания: {info.get('experience', '')}")])
+                html.Img(src=info.get('avatar', ''), style={'width': '100px', 'height': '100px', 'border-radius': '50%', 'margin-right': '20px'}),
+                html.Div([html.H3(teacher_name), html.P(info.get('position', '')), html.P(info.get('education', '')), html.P(f"Опыт преподавания: {info.get('experience', '')}")])
             ]),
             html.Div([html.H4("Контактная информация:"), dbc.Row([
-                dbc.Col(html.Div([html.I(className="fas fa-phone"), html.P(info.get('phone', ''),
-                                                                           style={'display': 'inline-block',
-                                                                                  'margin-left': '10px'})]), width=6),
-                dbc.Col(html.Div([html.I(className="fas fa-envelope"), html.P(info.get('email', ''),
-                                                                              style={'display': 'inline-block',
-                                                                                     'margin-left': '10px'})]), width=6)
+                dbc.Col(html.Div([html.I(className="fas fa-phone"), html.P(info.get('phone', ''), style={'display': 'inline-block', 'margin-left': '10px'})]), width=6),
+                dbc.Col(html.Div([html.I(className="fas fa-envelope"), html.P(info.get('email', ''), style={'display': 'inline-block', 'margin-left': '10px'})]), width=6)
             ])]),
             html.Div([html.H4("Место работы:"), html.P(info.get('placeOfWork', ''))]),
             html.Div([html.H4("Статистика активности преподавателя в электронной среде:"), dbc.Row([
-                dbc.Col(html.Div(style={'background': '#f8f9fa', 'padding': '15px', 'border-radius': '5px'},
-                                 children=[html.H5("Количество курсов"),
-                                           html.H3(courses_count, style={'color': '#007bff'})]), width=3),
-                dbc.Col(html.Div(style={'background': '#f8f9fa', 'padding': '15px', 'border-radius': '5px'},
-                                 children=[html.H5("Всего студентов"),
-                                           html.H3(total_students, style={'color': '#17a2b8'})]), width=3),
+                dbc.Col(html.Div(style={'background': '#f8f9fa', 'padding': '15px', 'border-radius': '5px'}, children=[html.H5("Количество курсов"), html.H3(courses_count, style={'color': '#007bff'})]), width=3),
+                dbc.Col(html.Div(style={'background': '#f8f9fa', 'padding': '15px', 'border-radius': '5px'}, children=[html.H5("Всего студентов"), html.H3(total_students, style={'color': '#17a2b8'})]), width=3),
             ])]),
             html.Div([html.H4("Список курсов:"), html.Ul([html.Li(course) for course in teacher_courses])])
         ])
     except Exception as e:
         log_action(current_user, "Ошибка загрузки информации преподавателя", str(e), error=True, ip=ip, user_agent=ua)
         return html.Div("Ошибка загрузки данных")
-
 
 @app.callback(
     [Output('teacher-courses-count', 'children'), Output('teacher-students-count', 'children'),
@@ -1684,7 +1393,6 @@ def update_teacher_info(teacher_name, avg_teacher, avg_student, current_user):
 def update_teacher_stats(teacher_name, semester, avg_teacher, avg_student):
     if not teacher_name:
         return 0, 0, "0.0", "0.0"
-
     teacher_courses = [c for c, t in teacher_dict.items() if t == teacher_name]
     if semester == 'Весенний':
         allowed = (SPRING_COURSES_2026 + SPRING_COURSES_2025 + SPRING_COURSES_2024 +
@@ -1692,30 +1400,23 @@ def update_teacher_stats(teacher_name, semester, avg_teacher, avg_student):
     else:
         allowed = (AUTUMN_COURSES_2026 + AUTUMN_COURSES_2025 + AUTUMN_COURSES_2024 +
                    AUTUMN_COURSES_2023 + AUTUMN_COURSES_2022 + AUTUMN_COURSES_2021)
-
     teacher_courses = [c for c in teacher_courses if c in allowed]
-
     total_students = 0
     for course in teacher_courses:
         df = courses[course]
         if df.empty:
             continue
         if course == 'ЭОК 9':
-            students = df[df['Полное имя пользователя'].isin(students_to_keep_df_course9)][
-                'Полное имя пользователя'].nunique()
+            students = df[df['Полное имя пользователя'].isin(students_to_keep_df_course9)]['Полное имя пользователя'].nunique()
         elif course == 'ЭОК 10':
-            students = df[df['Полное имя пользователя'].isin(students_to_keep_df_course10)][
-                'Полное имя пользователя'].nunique()
+            students = df[df['Полное имя пользователя'].isin(students_to_keep_df_course10)]['Полное имя пользователя'].nunique()
         else:
             students = df[df['Полное имя пользователя'] != teacher_name]['Полное имя пользователя'].nunique()
         total_students += students
-
     courses_count = len(teacher_courses)
     avg_teacher_val = float(avg_teacher) if avg_teacher is not None else 0
     avg_student_val = float(avg_student) if avg_student is not None else 0
-
     return courses_count, total_students, f"{avg_teacher_val:.1f}", f"{avg_student_val:.1f}"
-
 
 # ==================== CALLBACKS ДЛЯ СТРАНИЦЫ ЦИФРОВОГО СЛЕДА ====================
 @app.callback(
@@ -1735,50 +1436,32 @@ def update_logs_table(selected_user, action_contains, start_date, end_date, rese
         action_contains = ''
         start_date = None
         end_date = None
-
     with logs_lock:
         logs_copy = logs.copy()
-
     filtered = logs_copy
     if selected_user:
         filtered = [l for l in filtered if l['user'] == selected_user]
     if action_contains:
-        filtered = [l for l in filtered if
-                    action_contains.lower() in l['action'].lower() or action_contains.lower() in l['details'].lower()]
+        filtered = [l for l in filtered if action_contains.lower() in l['action'].lower() or action_contains.lower() in l['details'].lower()]
     if start_date:
         start_ts = datetime.strptime(start_date, '%Y-%m-%d')
         filtered = [l for l in filtered if datetime.strptime(l['timestamp'], '%Y-%m-%d %H:%M:%S') >= start_ts]
     if end_date:
         end_ts = datetime.strptime(end_date, '%Y-%m-%d') + timedelta(days=1)
         filtered = [l for l in filtered if datetime.strptime(l['timestamp'], '%Y-%m-%d %H:%M:%S') <= end_ts]
-
     users = sorted(set(l['user'] for l in logs_copy))
     user_options = [{'label': u, 'value': u} for u in users]
-
     if not filtered:
         table = html.Div("Нет записей, соответствующих фильтрам", style={'textAlign': 'center', 'padding': '20px'})
     else:
         table = dbc.Table(
             [
-                html.Thead(html.Tr(
-                    [html.Th("Время"), html.Th("Пользователь"), html.Th("Действие"), html.Th("Детали"), html.Th("IP"),
-                     html.Th("Источник"), html.Th("Ошибка")])),
-                html.Tbody([
-                    html.Tr([
-                        html.Td(l['timestamp']),
-                        html.Td(l['user']),
-                        html.Td(l['action']),
-                        html.Td(l['details']),
-                        html.Td(l['ip']),
-                        html.Td(l['source']),
-                        html.Td("Да" if l['error'] else "Нет")
-                    ]) for l in reversed(filtered)
-                ])
+                html.Thead(html.Tr([html.Th("Время"), html.Th("Пользователь"), html.Th("Действие"), html.Th("Детали"), html.Th("IP"), html.Th("Источник"), html.Th("Ошибка")])),
+                html.Tbody([html.Tr([html.Td(l['timestamp']), html.Td(l['user']), html.Td(l['action']), html.Td(l['details']), html.Td(l['ip']), html.Td(l['source']), html.Td("Да" if l['error'] else "Нет")]) for l in reversed(filtered)])
             ],
             bordered=True, hover=True, striped=True, responsive=True, style={'margin-top': '20px'}
         )
     return table, user_options, selected_user
-
 
 @app.callback(
     Output('download-csv', 'data'),
@@ -1793,75 +1476,67 @@ def export_logs_csv(n_clicks):
         writer = csv.DictWriter(output, fieldnames=['timestamp', 'user', 'action', 'details', 'error', 'ip', 'source'])
         writer.writeheader()
         for log in logs_copy:
-            writer.writerow(
-                {k: log.get(k, '') for k in ['timestamp', 'user', 'action', 'details', 'error', 'ip', 'source']})
+            writer.writerow({k: log.get(k, '') for k in ['timestamp', 'user', 'action', 'details', 'error', 'ip', 'source']})
         csv_content = output.getvalue()
         return dict(content=csv_content, filename=f"digital_footprint_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv")
     return None
 
-
-# ==================== НОВЫЕ CALLBACK'И ДЛЯ КНОПОК МОДЕЛИ ====================
-
+# ==================== НОВЫЕ CALLBACK'И ДЛЯ МОДЕЛЕЙ ====================
 @app.callback(
     Output("model-status", "children"),
-    Input("btn-train-model", "n_clicks"),
+    Input("btn-train-models", "n_clicks"),
     prevent_initial_call=True
 )
-def train_model_callback(n_clicks):
+def train_models_callback(n_clicks):
     if n_clicks:
         try:
-            model, _ = train_prediction_model(MODEL_GRADES_FILE)
-            return html.Div("✅ Модель успешно обучена и сохранена!", style={'color': 'green'})
+            df_weekly = train_weekly_models(GRADES_FILE)
+            load_weekly_models()
+            return html.Div(f"? Модели обучены и сохранены. Создано {len(df_weekly)} записей.", style={'color': 'green'})
         except Exception as e:
-            return html.Div(f"❌ Ошибка обучения: {str(e)}", style={'color': 'red'})
+            return html.Div(f"? Ошибка обучения: {str(e)}", style={'color': 'red'})
     return ""
-
 
 @app.callback(
     Output("predictions-output", "children"),
     Input("btn-predict", "n_clicks"),
     Input("predict-course-select", "value"),
+    Input("predict-week-select", "value"),
     prevent_initial_call=True
 )
-def show_predictions(n_clicks, course_name):
-    if n_clicks and course_name:
-        if trained_model is None:
-            return html.Div("Модель не обучена. Сначала обучите её.", style={'color': 'red'})
+def show_predictions(n_clicks, course_name, week_num):
+    if n_clicks and course_name and week_num:
+        if not weekly_models:
+            return html.Div("Модели не загружены. Сначала обучите модели (кнопка 'Обучить модели').", style={'color': 'red'})
+        if week_num not in weekly_models:
+            return html.Div(f"Модель для недели {week_num} не найдена. Доступны недели: {list(weekly_models.keys())}", style={'color': 'red'})
         try:
-            df_pred = predict_current_course(course_name)
+            df_pred = predict_course_weekly(course_name, week_num)
             table = dbc.Table(
                 [
                     html.Thead(html.Tr([html.Th("Студент"), html.Th("Вероятность сдачи"), html.Th("Прогноз")])),
-                    html.Tbody([
-                        html.Tr([
-                            html.Td(row['Студент']),
-                            html.Td(f"{row['Вероятность_сдачи']:.2f}"),
-                            html.Td(row['Прогноз'], style={'color': 'green' if row['Прогноз'] == 'Сдаст' else 'red'})
-                        ]) for _, row in df_pred.iterrows()
-                    ])
+                    html.Tbody([html.Tr([html.Td(row['Студент']), html.Td(f"{row['Вероятность_сдачи']:.2f}"), html.Td(row['Прогноз'], style={'color': 'green' if row['Прогноз'] == 'Сдаст' else 'red'})]) for _, row in df_pred.iterrows()])
                 ],
                 bordered=True, hover=True, striped=True, responsive=True
             )
-            return html.Div([html.H5(f"Прогноз для курса {course_name}"), table])
+            return html.Div([html.H5(f"Прогноз для курса {course_name} на неделе {week_num}"), table])
         except Exception as e:
             return html.Div(f"Ошибка: {str(e)}", style={'color': 'red'})
     return ""
-
 
 @app.callback(
     Output("download-link", "href"),
     Input("btn-predict", "n_clicks"),
     Input("predict-course-select", "value"),
+    Input("predict-week-select", "value"),
     prevent_initial_call=True
 )
-def download_pred_link(n_clicks, course_name):
-    if n_clicks and course_name and trained_model is not None:
-        return f"/admin/download_predictions/{course_name}"
+def download_pred_link(n_clicks, course_name, week_num):
+    if n_clicks and course_name and week_num and week_num in weekly_models:
+        return f"/admin/download_predictions/{course_name}/{week_num}"
     return "#"
 
-
-# ==================== НОВЫЙ CALLBACK ДЛЯ ПРОГНОЗОВ ПРЕПОДАВАТЕЛЯ ====================
-
+# ==================== НОВЫЙ CALLBACK ДЛЯ ПРОГНОЗОВ ПРЕПОДАВАТЕЛЯ (упрощённо) ====================
 @app.callback(
     Output('teacher-predictions-panel', 'children'),
     Input('selected-teacher-page', 'data'),
@@ -1872,15 +1547,9 @@ def download_pred_link(n_clicks, course_name):
 def update_teacher_predictions(teacher_name, semester, current_user):
     ip, ua = get_request_client_info()
     if not teacher_name:
-        return html.Div("Выберите преподавателя для просмотра прогнозов.",
-                        style={'padding': '15px', 'background': '#f8f9fa'})
-
-    if trained_model is None:
-        return html.Div(
-            "Модель прогнозирования ещё не обучена. Пожалуйста, зайдите под Заведующим и нажмите «Обучить модель».",
-            style={'color': 'red', 'padding': '15px', 'background': '#f8d7da', 'border-radius': '5px'}
-        )
-
+        return html.Div("Выберите преподавателя для просмотра прогнозов.", style={'padding': '15px', 'background': '#f8f9fa'})
+    if not weekly_models:
+        return html.Div("Модели не загружены. Обратитесь к заведующему для обучения моделей.", style={'color': 'red', 'padding': '15px'})
     teacher_courses = [c for c, t in teacher_dict.items() if t == teacher_name]
     if semester == 'Весенний':
         allowed = (SPRING_COURSES_2026 + SPRING_COURSES_2025 + SPRING_COURSES_2024 +
@@ -1889,107 +1558,88 @@ def update_teacher_predictions(teacher_name, semester, current_user):
         allowed = (AUTUMN_COURSES_2026 + AUTUMN_COURSES_2025 + AUTUMN_COURSES_2024 +
                    AUTUMN_COURSES_2023 + AUTUMN_COURSES_2022 + AUTUMN_COURSES_2021)
     teacher_courses = [c for c in teacher_courses if c in allowed]
-
     if not teacher_courses:
         return html.Div(f"У преподавателя {teacher_name} нет курсов в {semester} семестре.", style={'padding': '15px'})
-
+    # Используем максимальную доступную неделю (можно заменить на выбранную, но для простоты берём последнюю)
+    max_week = max(weekly_models.keys())
     course_predictions = []
-    all_students_predictions = []
-
+    all_probs = []
     for course in teacher_courses:
         try:
-            df_pred = predict_current_course(course)
+            df_pred = predict_course_weekly(course, max_week)
             if df_pred is not None and not df_pred.empty:
-                course_predictions.append({
-                    'course': course,
-                    'df': df_pred,
-                    'pass_count': (df_pred['Вероятность_сдачи'] >= 0.5).sum(),
-                    'fail_count': (df_pred['Вероятность_сдачи'] < 0.5).sum(),
-                    'total': len(df_pred)
-                })
-                all_students_predictions.append(df_pred)
+                pass_count = (df_pred['Вероятность_сдачи'] >= 0.5).sum()
+                fail_count = (df_pred['Вероятность_сдачи'] < 0.5).sum()
+                total = len(df_pred)
+                course_predictions.append({'course': course, 'total': total, 'pass_count': pass_count, 'fail_count': fail_count, 'pass_percent': pass_count/total*100 if total>0 else 0})
+                all_probs.extend(df_pred['Вероятность_сдачи'].tolist())
         except Exception as e:
             log_action(current_user, "Ошибка прогноза", f"{course}: {str(e)}", error=True, ip=ip, user_agent=ua)
             continue
-
     if not course_predictions:
-        return html.Div("Не удалось получить прогнозы ни по одному курсу. Проверьте логи.", style={'color': 'orange'})
-
-    if all_students_predictions:
-        df_all = pd.concat(all_students_predictions, ignore_index=True)
-        hist_fig = px.histogram(
-            df_all, x='Вероятность_сдачи', nbins=20,
-            title=f'Распределение вероятностей сдачи курсов ({semester} семестр)',
-            labels={'Вероятность_сдачи': 'Вероятность сдачи', 'count': 'Количество студентов'}
-        )
-        hist_fig.update_layout(bargap=0.05)
-        hist_graph = dcc.Graph(figure=hist_fig)
-    else:
-        hist_graph = html.Div("Нет данных для построения гистограммы.")
-
+        return html.Div("Не удалось получить прогнозы", style={'color': 'orange'})
+    # Гистограмма
+    hist_fig = px.histogram(x=all_probs, nbins=20, title=f'Распределение вероятностей сдачи (неделя {max_week})', labels={'x': 'Вероятность сдачи', 'y': 'Количество студентов'})
+    hist_fig.update_layout(bargap=0.05)
+    hist_graph = dcc.Graph(figure=hist_fig)
+    # Таблица
     table_rows = []
     for cp in course_predictions:
-        table_rows.append(
-            html.Tr([
-                html.Td(cp['course']),
-                html.Td(cp['total']),
-                html.Td(cp['pass_count'], style={'color': 'green', 'font-weight': 'bold'}),
-                html.Td(cp['fail_count'], style={'color': 'red', 'font-weight': 'bold'}),
-                html.Td(f"{cp['pass_count'] / cp['total'] * 100:.1f}%" if cp['total'] > 0 else "0%")
-            ])
-        )
-
-    table = dbc.Table(
-        [
-            html.Thead(html.Tr([
-                html.Th("Курс"), html.Th("Всего студентов"),
-                html.Th("Прогноз «Сдаст»"), html.Th("Прогноз «Не сдаст»"),
-                html.Th("Доля сдающих")
-            ])),
-            html.Tbody(table_rows)
-        ],
-        bordered=True, hover=True, striped=True, responsive=True,
-        style={'margin-top': '15px'}
-    )
-
+        table_rows.append(html.Tr([html.Td(cp['course']), html.Td(cp['total']), html.Td(cp['pass_count'], style={'color': 'green', 'font-weight': 'bold'}), html.Td(cp['fail_count'], style={'color': 'red', 'font-weight': 'bold'}), html.Td(f"{cp['pass_percent']:.1f}%")]))
+    table = dbc.Table([html.Thead(html.Tr([html.Th("Курс"), html.Th("Всего"), html.Th("Сдаст"), html.Th("Не сдаст"), html.Th("Доля")])), html.Tbody(table_rows)], bordered=True, hover=True, striped=True)
     total_students = sum(cp['total'] for cp in course_predictions)
     total_pass = sum(cp['pass_count'] for cp in course_predictions)
     total_fail = sum(cp['fail_count'] for cp in course_predictions)
-
     summary = html.Div([
-        html.H5(f"Общая статистика по преподавателю {teacher_name} ({semester} семестр)", style={'margin-top': '20px'}),
-        dbc.Row([
-            dbc.Col(html.Div([
-                html.H6("Всего студентов", style={'color': '#6c757d'}),
-                html.H3(total_students, style={'color': '#007bff'})
-            ], style={'text-align': 'center', 'background': '#f8f9fa', 'padding': '10px', 'border-radius': '5px'}),
-                width=4),
-            dbc.Col(html.Div([
-                html.H6("Прогноз «Сдаст»", style={'color': '#6c757d'}),
-                html.H3(total_pass, style={'color': 'green'})
-            ], style={'text-align': 'center', 'background': '#f8f9fa', 'padding': '10px', 'border-radius': '5px'}),
-                width=4),
-            dbc.Col(html.Div([
-                html.H6("Прогноз «Не сдаст»", style={'color': '#6c757d'}),
-                html.H3(total_fail, style={'color': 'red'})
-            ], style={'text-align': 'center', 'background': '#f8f9fa', 'padding': '10px', 'border-radius': '5px'}),
-                width=4),
-        ], className="mb-3"),
-        html.Hr(),
-        html.H5("Детали по курсам"),
-        table,
-        html.Hr(),
-        html.H5("Гистограмма распределения вероятностей сдачи (все студенты)"),
-        hist_graph
+        html.H5(f"Общая статистика по преподавателю {teacher_name} ({semester} семестр, данные по неделе {max_week})"),
+        dbc.Row([dbc.Col(html.Div([html.H6("Всего студентов"), html.H3(total_students, style={'color': '#007bff'})], style={'textAlign': 'center', 'background': '#f8f9fa', 'padding': '10px', 'borderRadius': '5px'}), width=4),
+                 dbc.Col(html.Div([html.H6("Прогноз «Сдаст»"), html.H3(total_pass, style={'color': 'green'})], style={'textAlign': 'center', 'background': '#f8f9fa', 'padding': '10px', 'borderRadius': '5px'}), width=4),
+                 dbc.Col(html.Div([html.H6("Прогноз «Не сдаст»"), html.H3(total_fail, style={'color': 'red'})], style={'textAlign': 'center', 'background': '#f8f9fa', 'padding': '10px', 'borderRadius': '5px'}), width=4)], className="mb-3"),
+        html.Hr(), html.H5("Детали по курсам"), table, html.Hr(), html.H5("Гистограмма распределения"), hist_graph
     ])
-
-    log_action(current_user, "Просмотр прогнозов преподавателя", f"{teacher_name}, семестр {semester}", ip=ip,
-               user_agent=ua)
+    log_action(current_user, "Просмотр прогнозов преподавателя", f"{teacher_name}, семестр {semester}", ip=ip, user_agent=ua)
     return summary
 
+# ==================== ПРОГНОЗЫ ДЛЯ ВЫБРАННОГО КУРСА НА ГЛАВНОЙ СТРАНИЦЕ ====================
+@app.callback(
+    Output('course-predictions-panel', 'children'),
+    Input('course-dropdown', 'value'),
+    Input('selected-teacher', 'data'),
+    Input('current-teacher', 'data'),
+    prevent_initial_call=True
+)
+def update_course_predictions(course_name, teacher_name, current_user):
+    ip, ua = get_request_client_info()
+    if not course_name or not teacher_name:
+        return html.Div("Выберите курс для просмотра прогнозов.", style={'padding': '15px'})
+    if current_user != 'Заведующий' and teacher_dict.get(course_name) != teacher_name:
+        return html.Div("Нет доступа", style={'color': 'red'})
+    if not weekly_models:
+        return html.Div("Модели не загружены. Обучите модели.", style={'color': 'red'})
+    max_week = max(weekly_models.keys())
+    try:
+        df_pred = predict_course_weekly(course_name, max_week)
+        if df_pred.empty:
+            return html.Div("Нет данных")
+        table = dbc.Table([html.Thead(html.Tr([html.Th("Студент"), html.Th("Вероятность"), html.Th("Прогноз")])), html.Tbody([html.Tr([html.Td(row['Студент']), html.Td(f"{row['Вероятность_сдачи']:.2f}"), html.Td(row['Прогноз'], style={'color': 'green' if row['Прогноз']=='Сдаст' else 'red'})]) for _, row in df_pred.iterrows()])], bordered=True, hover=True, striped=True)
+        hist_fig = px.histogram(df_pred, x='Вероятность_сдачи', nbins=20, title=f'Распределение вероятностей сдачи ({course_name})')
+        hist_fig.update_layout(bargap=0.05)
+        hist_graph = dcc.Graph(figure=hist_fig)
+        pass_count = (df_pred['Вероятность_сдачи'] >= 0.5).sum()
+        fail_count = (df_pred['Вероятность_сдачи'] < 0.5).sum()
+        total = len(df_pred)
+        pass_percent = pass_count/total*100 if total>0 else 0
+        summary = html.Div([html.H4(f"Прогноз для курса {course_name} (неделя {max_week})"),
+                            dbc.Row([dbc.Col(html.Div([html.H6("Всего"), html.H3(total)], style={'textAlign': 'center'}), width=3),
+                                     dbc.Col(html.Div([html.H6("Сдаст"), html.H3(pass_count, style={'color': 'green'})], style={'textAlign': 'center'}), width=3),
+                                     dbc.Col(html.Div([html.H6("Не сдаст"), html.H3(fail_count, style={'color': 'red'})], style={'textAlign': 'center'}), width=3),
+                                     dbc.Col(html.Div([html.H6("Доля сдающих"), html.H3(f"{pass_percent:.1f}%", style={'color': '#28a745'})], style={'textAlign': 'center'}), width=3)], className="mb-3"),
+                            html.Hr(), html.H5("Детальный прогноз"), table, html.Hr(), html.H5("Гистограмма"), hist_graph])
+        return summary
+    except Exception as e:
+        return html.Div(f"Ошибка: {str(e)}", style={'color': 'red'})
 
 # ==================== FLASK МАРШРУТЫ (ЛОГИН, ЛОГАУТ И ДР.) ====================
-
 @server.route('/login', methods=['GET', 'POST'])
 def login():
     if request.method == 'POST':
@@ -2003,12 +1653,9 @@ def login():
             log_action(teacher, "Вход в систему", "Успешный вход", ip=ip, user_agent=ua)
             return redirect('/dash/')
         else:
-            log_action(teacher if teacher else "Unknown", "Ошибка входа", "Неверный логин или пароль", error=True,
-                       ip=ip, user_agent=ua)
-            return render_template_string(
-                login_page() + "<div class='alert alert-danger'>Неверный логин или пароль</div>")
+            log_action(teacher if teacher else "Unknown", "Ошибка входа", "Неверный логин или пароль", error=True, ip=ip, user_agent=ua)
+            return render_template_string(login_page() + "<div class='alert alert-danger'>Неверный логин или пароль</div>")
     return render_template_string(login_page())
-
 
 def login_page():
     return '''
@@ -2045,7 +1692,6 @@ def login_page():
     </html>
     '''
 
-
 @server.route('/logout')
 @login_required
 def logout():
@@ -2056,13 +1702,11 @@ def logout():
     session.pop('user_id', None)
     return redirect('/login')
 
-
 @server.route('/')
 def root():
     if 'user_id' in session:
         return redirect('/dash/')
     return redirect('/login')
-
 
 @server.route('/admin/clear_logs', methods=['POST'])
 def admin_clear_logs():
@@ -2076,9 +1720,7 @@ def admin_clear_logs():
     log_action("Система", "Очистка лога", "Лог очищен администратором", ip=ip, user_agent=ua)
     return jsonify({'status': 'success', 'message': 'Logs cleared'})
 
-
 # ==================== РЕНДЕРИНГ СТРАНИЦ ПО URL ====================
-
 @app.callback(
     Output('page-content', 'children'),
     Input('url', 'pathname')
@@ -2092,115 +1734,13 @@ def render_page_from_url(pathname):
         return teacher_page(teacher)
     elif pathname == '/dash/logs':
         if teacher != 'Заведующий':
-            return html.Div("Доступ запрещён. Только для заведующего.",
-                            style={'padding': '20px', 'textAlign': 'center'})
+            return html.Div("Доступ запрещён. Только для заведующего.", style={'padding': '20px', 'textAlign': 'center'})
         return digital_footprint_page()
     else:
         return home_page(teacher)
 
-
-# ==================== ПРОГНОЗЫ ДЛЯ ВЫБРАННОГО КУРСА НА ГЛАВНОЙ СТРАНИЦЕ ====================
-
-@app.callback(
-    Output('course-predictions-panel', 'children'),
-    Input('course-dropdown', 'value'),
-    Input('selected-teacher', 'data'),
-    Input('current-teacher', 'data'),
-    prevent_initial_call=True
-)
-def update_course_predictions(course_name, teacher_name, current_user):
-    ip, ua = get_request_client_info()
-    # Если курс не выбран или нет преподавателя
-    if not course_name or not teacher_name:
-        return html.Div("Выберите курс для просмотра прогнозов.", style={'padding': '15px', 'background': '#f8f9fa'})
-
-    # Проверяем, что преподаватель имеет доступ к курсу (для безопасности)
-    if current_user != 'Заведующий' and teacher_dict.get(course_name) != teacher_name:
-        return html.Div("У вас нет доступа к этому курсу.", style={'color': 'red', 'padding': '15px'})
-
-    # Проверяем, обучена ли модель
-    if trained_model is None:
-        return html.Div(
-            "Модель прогнозирования ещё не обучена. Пожалуйста, обратитесь к заведующему.",
-            style={'color': 'red', 'padding': '15px', 'background': '#f8d7da', 'border-radius': '5px'}
-        )
-
-    try:
-        df_pred = predict_current_course(course_name)
-        if df_pred is None or df_pred.empty:
-            return html.Div("Нет данных для прогнозирования по этому курсу.", style={'padding': '15px'})
-
-        # Таблица предсказаний
-        table = dbc.Table(
-            [
-                html.Thead(html.Tr([html.Th("Студент"), html.Th("Вероятность сдачи"), html.Th("Прогноз")])),
-                html.Tbody([
-                    html.Tr([
-                        html.Td(row['Студент']),
-                        html.Td(f"{row['Вероятность_сдачи']:.2f}"),
-                        html.Td(row['Прогноз'], style={'color': 'green' if row['Прогноз'] == 'Сдаст' else 'red'})
-                    ]) for _, row in df_pred.iterrows()
-                ])
-            ],
-            bordered=True, hover=True, striped=True, responsive=True,
-            style={'margin-top': '15px'}
-        )
-
-        # Гистограмма распределения вероятностей
-        hist_fig = px.histogram(
-            df_pred, x='Вероятность_сдачи', nbins=20,
-            title=f'Распределение вероятностей сдачи по курсу {course_name}',
-            labels={'Вероятность_сдачи': 'Вероятность сдачи', 'count': 'Количество студентов'}
-        )
-        hist_fig.update_layout(bargap=0.05)
-        hist_graph = dcc.Graph(figure=hist_fig)
-
-        # Сводка
-        pass_count = (df_pred['Вероятность_сдачи'] >= 0.5).sum()
-        fail_count = (df_pred['Вероятность_сдачи'] < 0.5).sum()
-        total_students = len(df_pred)
-        pass_percent = (pass_count / total_students * 100) if total_students > 0 else 0
-
-        summary = html.Div([
-            html.H4(f"Прогноз успеваемости по курсу {course_name}", style={'margin-top': '20px'}),
-            dbc.Row([
-                dbc.Col(html.Div([
-                    html.H6("Всего студентов", style={'color': '#6c757d'}),
-                    html.H3(total_students, style={'color': '#007bff'})
-                ], style={'text-align': 'center', 'background': '#f8f9fa', 'padding': '10px', 'border-radius': '5px'}),
-                    width=3),
-                dbc.Col(html.Div([
-                    html.H6("Прогноз «Сдаст»", style={'color': '#6c757d'}),
-                    html.H3(pass_count, style={'color': 'green'})
-                ], style={'text-align': 'center', 'background': '#f8f9fa', 'padding': '10px', 'border-radius': '5px'}),
-                    width=3),
-                dbc.Col(html.Div([
-                    html.H6("Прогноз «Не сдаст»", style={'color': '#6c757d'}),
-                    html.H3(fail_count, style={'color': 'red'})
-                ], style={'text-align': 'center', 'background': '#f8f9fa', 'padding': '10px', 'border-radius': '5px'}),
-                    width=3),
-                dbc.Col(html.Div([
-                    html.H6("Доля сдающих", style={'color': '#6c757d'}),
-                    html.H3(f"{pass_percent:.1f}%", style={'color': '#28a745'})
-                ], style={'text-align': 'center', 'background': '#f8f9fa', 'padding': '10px', 'border-radius': '5px'}),
-                    width=3),
-            ], className="mb-3"),
-            html.Hr(),
-            html.H5("Детальный прогноз по студентам"),
-            table,
-            html.Hr(),
-            html.H5("Гистограмма распределения вероятностей"),
-            hist_graph
-        ])
-
-        log_action(current_user, "Просмотр прогноза курса", f"Курс: {course_name}", ip=ip, user_agent=ua)
-        return summary
-
-    except Exception as e:
-        log_action(current_user, "Ошибка прогноза курса", f"{course_name}: {str(e)}", error=True, ip=ip, user_agent=ua)
-        return html.Div(f"Ошибка при получении прогноза: {str(e)}", style={'color': 'red', 'padding': '15px'})
 # ==================== ЗАПУСК ====================
-
 if __name__ == '__main__':
     load_logs_from_file()
+    load_weekly_models()
     server.run(debug=True, host='0.0.0.0', port=5000)
