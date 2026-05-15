@@ -728,11 +728,12 @@ def home_page(current_teacher):
     if current_teacher == 'Заведующий':
         admin_panel = html.Div([
             html.Hr(),
-            html.H4("Управление моделью прогнозирования успеваемости студентов", style={'margin-top': '20px'}),
+            html.H4("Прогнозирование успеваемости студентов", style={'margin-top': '20px'}),
             dbc.Row([
-                dbc.Col(dbc.Button("Обучить модели", id="btn-train-models", color="primary", className="me-2")),
+                dbc.Col(dbc.Button("Обучить модели", id="btn-train-models", color="primary", className="me-2", disabled=True)),
             ], className="mb-3"),
             html.Div(id="model-status", style={'margin-top': '10px', 'font-weight': 'bold'}),
+
             html.H5("Прогноз для текущего курса", style={'margin-top': '20px'}),
             dbc.Row([
                 dbc.Col(dcc.Dropdown(id='predict-course-select', options=[{'label': c, 'value': c} for c in courses.keys()], placeholder="Выберите курс")),
@@ -1739,8 +1740,8 @@ def render_page_from_url(pathname):
     else:
         return home_page(teacher)
 
-load_logs_from_file()
-load_weekly_models()
 # ==================== ЗАПУСК ====================
 if __name__ == '__main__':
+    load_logs_from_file()
+    load_weekly_models()
     server.run(debug=True, host='0.0.0.0', port=5000)
