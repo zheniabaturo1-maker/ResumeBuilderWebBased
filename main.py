@@ -515,7 +515,7 @@ app = Dash(__name__, server=server, external_stylesheets=[dbc.themes.BOOTSTRAP,
 weekly_models = {}
 weekly_features_list = {}
 WEEKLY_MODELS_DIR = "weekly_models"
-GRADES_FILE = "C:/Users/Zver/Downloads/student_grades_only.xlsx"
+GRADES_FILE = os.path.join(BASE_DIR, "student_grades_only.xlsx")
 
 # ==================== ФУНКЦИЯ ПОСТРОЕНИЯ НЕДЕЛЬНОГО ДАТАСЕТА ИЗ ЛОГОВ ====================
 def build_weekly_dataset_from_logs(grades_file_path, max_weeks=18):
@@ -1492,9 +1492,9 @@ def train_models_callback(n_clicks):
         try:
             df_weekly = train_weekly_models(GRADES_FILE)
             load_weekly_models()
-            return html.Div(f"? Модели обучены и сохранены. Создано {len(df_weekly)} записей.", style={'color': 'green'})
+            return html.Div(f"✅ Модели обучены и сохранены. Создано {len(df_weekly)} записей.", style={'color': 'green'})
         except Exception as e:
-            return html.Div(f"? Ошибка обучения: {str(e)}", style={'color': 'red'})
+            return html.Div(f"❌ Ошибка обучения: {str(e)}", style={'color': 'red'})
     return ""
 
 @app.callback(
