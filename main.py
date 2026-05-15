@@ -515,7 +515,7 @@ app = Dash(__name__, server=server, external_stylesheets=[dbc.themes.BOOTSTRAP,
 weekly_models = {}
 weekly_features_list = {}
 WEEKLY_MODELS_DIR = "weekly_models"
-GRADES_FILE = "C:/Users/Zver/Downloads/student_grades.xlsx"
+GRADES_FILE = "C:/Users/Zver/Downloads/student_grades_only.xlsx"
 
 # ==================== ФУНКЦИЯ ПОСТРОЕНИЯ НЕДЕЛЬНОГО ДАТАСЕТА ИЗ ЛОГОВ ====================
 def build_weekly_dataset_from_logs(grades_file_path, max_weeks=18):
