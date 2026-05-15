@@ -515,7 +515,7 @@ app = Dash(__name__, server=server, external_stylesheets=[dbc.themes.BOOTSTRAP,
 weekly_models = {}
 weekly_features_list = {}
 WEEKLY_MODELS_DIR = "weekly_models"
-GRADES_FILE = os.path.join(BASE_DIR, "student_grades_only.xlsx")
+GRADES_FILE = os.path.join(BASE_DIR,"student_grades_only.xlsx")
 
 # ==================== ФУНКЦИЯ ПОСТРОЕНИЯ НЕДЕЛЬНОГО ДАТАСЕТА ИЗ ЛОГОВ ====================
 def build_weekly_dataset_from_logs(grades_file_path, max_weeks=18):
@@ -1740,8 +1740,8 @@ def render_page_from_url(pathname):
     else:
         return home_page(teacher)
 
+load_logs_from_file()
+load_weekly_models()
 # ==================== ЗАПУСК ====================
-if __name__ == '__main__':
-    load_logs_from_file()
-    load_weekly_models()
+if __name__ == '__main__': 
     server.run(debug=True, host='0.0.0.0', port=5000)
