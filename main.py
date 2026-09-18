@@ -10,6 +10,10 @@ import io
 import csv
 import atexit
 import time
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+from email.header import Header
 from flask import Flask, render_template_string, redirect, url_for, request, session, jsonify, send_file
 from flask_login import LoginManager, UserMixin, login_user, logout_user, login_required
 from dash import Dash, dcc, html, Input, Output, callback_context
@@ -22,19 +26,9 @@ import joblib
 import warnings
 warnings.filterwarnings('ignore')
 
+# ==================== КОНФИГУРАЦИЯ ====================
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-
 FILE_PATHS = {
-    'ЭОК 1': os.path.join(BASE_DIR, "logs_Python_науч_20240623-0236.xlsx"),
-    'ЭОК 2': os.path.join(BASE_DIR, "logs_Time_series _20240623-0046.xlsx"),
-    'ЭОК 3': os.path.join(BASE_DIR, "logs_РКИиП_ТВиМС_1_20240623-0235.xlsx"),
-    'ЭОК 4': os.path.join(BASE_DIR, "logs_ТВиМС_ИВТ_1_20240623-0234.xlsx"),
-    'ЭОК 5': os.path.join(BASE_DIR, "logs_БМ_ИБCDIO_20240623-0048.xlsx"),
-    'ЭОК 6': os.path.join(BASE_DIR, "logs_ВМ 1_20240623-0049.xlsx"),
-    'ЭОК 7': os.path.join(BASE_DIR, "logs_ВМ2_20240623-0049.xlsx"),
-    'ЭОК 8': os.path.join(BASE_DIR, "logs_ПАОС МЛиТА_20250305-1134.xlsx"),
-    'ЭОК 9': os.path.join(BASE_DIR, "logs_РКИиП_ТВиМС_1_20250305-1118k.xlsx"),
-    'ЭОК 10': os.path.join(BASE_DIR, "logs_ТВиМС_ИВТ_1_20250305-1119k.xlsx"),
     'ЭОК 11': os.path.join(BASE_DIR, "logs_ВМ 1_20220830-1619.xlsx"),
     'ЭОК 12': os.path.join(BASE_DIR, "logs_ВМ2_20220830-1623.xlsx"),
     'ЭОК 13': os.path.join(BASE_DIR, "logs_ИссО_1_20220901-1104.xlsx"),
@@ -42,70 +36,23 @@ FILE_PATHS = {
     'ЭОК 15': os.path.join(BASE_DIR, "logs_Матем (ИГДГиГ)_20220830-1545.xlsx"),
     'ЭОК 16': os.path.join(BASE_DIR, "logs_ТВ(090301)_20220825-1546.xlsx"),
     'ЭОК 17': os.path.join(BASE_DIR, "logs_ТВМСкаф. информатики)_20220825-1547.xlsx"),
-    'ЭОК 18': os.path.join(BASE_DIR, "logs_NN_бакалавриат_Осень_2026.xlsx"),
-    'ЭОК 19': os.path.join(BASE_DIR, "logs_Матстат (ПМ)_Осень_2026.xlsx"),
-    'ЭОК 20': os.path.join(BASE_DIR, "logs_РКИиП_ТВиМС_1_Осень_2026.xlsx"),
-    'ЭОК 21': os.path.join(BASE_DIR, "logs_ТВиМС_ИВТ_1_Осень_2026.xlsx"),
-    'ЭОК 22': os.path.join(BASE_DIR, "logs_ТВМСкаф. информатики)_Весна_2025_Осень_2026.xlsx"),
-    'ЭОК 23': os.path.join(BASE_DIR, "logs_Теория вероятностей и математическая статистика - часть 2 _Осень_2026.xlsx"),
+    'ПрИнж_ТВМС': os.path.join(BASE_DIR, "logs_ПрИнж_ТВМС_1_20260918-0942.xlsx"),
+    'Мат_стат_ПМКАИБАС': os.path.join(BASE_DIR, "logs_Мат_стат_ПМКАИБАС_1_20260918-1119.xlsx"),
 }
 
-# Списки студентов для курсов 9 и 10
-students_to_keep_df_course9 = [
-    "Абросимов Всеволод Сергеевич", "Айрапетян Давид Артакович", "Андронов Владислав Васильевич",
-    "Басов Егор Дмитриевич", "Батодалаев Даши Дугарович", "Башмаков Артём Алексеевич",
-    "Ведров Артем Андреевич", "Волков Владислав Михайлович", "Галеев Тимур Ренатович",
-    "Данилов Ярослав Федорович", "Даудов Даниил Вахмурадович", "Емельянов Андрей Валентинович",
-    "Епанчинцева Дарья Евгеньевна", "Заболоцкий Влас Витальевич", "Зайцева Анастасия Юрьевна",
-    "Зайцева Евгения Александровна", "Захаров Владислав Сергеевич", "Зиганшин Михаил Радиевич",
-    "Зленко Дмитрий Алексеевич", "Зникин Алексей Валерьевич", "Каханова Диана Дмитриевна",
-    "Кириченко Полина Сергеевна", "Кондрашин Родион Леонидович", "Королькова Анастасия Олеговна",
-    "Кочетков Иван -", "Кузин Данил Александрович", "Липатова Вера Геннадьевна",
-    "Листвягов Артём Николаевич", "Литвинцев Михаил Евгеньевич", "Логвинов Виталий Владимирович",
-    "Логинова Дарья Александровна", "Лужникова Виктория Ивановна", "Лященко Лея Евгеньевна",
-    "Мацука Александра Сергеевна", "Мышенин Егор Максимович", "Мягкий Станислав Евгеньевич",
-    "Письменный Георгий Юрьевич", "Пономарёв Александр Сергеевич", "Пылев Максим Сергеевич",
-    "Ржаницына Анастасия Денисовна", "Сазанович Максим Олегович", "Сковытин Владимир Александрович",
-    "Смологонов Артур Константинович", "Собенин Михаил Владимирович", "Стативко Максим Витальевич",
-    "Топоров Николай Алексеевич", "Учаев Павел Сергеевич", "Федорова Марина Максимовна",
-    "Филимонов Алексей Евгеньевич", "Хабибуллин Ильяс Рустамович", "Хан Вячеслав -",
-    "Худышкин Станислав Дмитриевич", "Шафоростов Роман Сергеевич", "Яковлев Артём Сергеевич"
-]
-
-students_to_keep_df_course10 = [
-    "Адимханов Владимир Дмитриевич", "Андриенко Захар Юрьевич", "Арсаланов Доржи Александрович",
-    "Афонин Илья -", "Болонев Егор Юрьевич", "Брайнингер Иван Сергеевич", "Бученик Никита Сергеевич",
-    "Вальков Антон Андреевич", "Губанов Андрей Валентинович", "Дондукова Дари Эрдэмовна",
-    "Евдокимов Андрей Робертович", "Зайченко Константин Олегович", "Захматов Сергей Артёмович",
-    "Кириллов Валерий Денисович", "Кустикова Ксения Александровна", "Лисихин Александр Леонидович",
-    "Мандричко Никита Сергеевич", "Матлай Александр Николаевич", "Молостов Степан Викторович",
-    "Морозов Михаил Викторович", "Нагаев Артур Андреевич", "Непомнящих Павел Олегович",
-    "Нефёдов Илья Андреевич", "Никитин Виталий Игоревич", "Никифоров Михаил Андреевич",
-    "Нимаева Ажима Базаровна", "Новикова Наталья Дмитриевна", "Новоселов Михаил Романович",
-    "Пак Родион Эдуардович", "Пантелеев Григорий Дмитриевич", "Петраковский Роман Олегович",
-    "Платонов Александр Александрович", "Русов Данил Дмитриевич", "Савчук Мирра Александровна",
-    "Салтыков Алексей Владиславович", "Сафронов Максим Дмитриевич", "Сошнев Никита Сергеевич",
-    "Тахтин Данил Сергеевич", "Тумашов Георгий Игоревич", "Укиев Шерулан Сейтбекович",
-    "Филимонов Валерий Александрович", "Черненченко Тимофей Александрович", "Чумутин Евгений Олегович",
-    "Шалин Никита -", "Шарыгин Владимир Александрович", "Шинкарев Григорий Игоревич",
-    "Щирба Михаил Игоревич", "Яловкин Данил Николаевич"
-]
-
-# Группы курсов по семестрам
 SPRING_COURSES_2021 = []
 AUTUMN_COURSES_2021 = ['ЭОК 11', 'ЭОК 13', 'ЭОК 14', 'ЭОК 16', 'ЭОК 17']
 SPRING_COURSES_2022 = ['ЭОК 12', 'ЭОК 15']
 AUTUMN_COURSES_2022 = []
 SPRING_COURSES_2023 = []
-AUTUMN_COURSES_2023 = ['ЭОК 3', 'ЭОК 4', 'ЭОК 5', 'ЭОК 6']
-SPRING_COURSES_2024 = ['ЭОК 1', 'ЭОК 2', 'ЭОК 7']
-AUTUMN_COURSES_2024 = ['ЭОК 8', 'ЭОК 9', 'ЭОК 10']
+AUTUMN_COURSES_2023 = []
+SPRING_COURSES_2024 = []
+AUTUMN_COURSES_2024 = []
 SPRING_COURSES_2025 = []
-AUTUMN_COURSES_2025 = ['ЭОК 18', 'ЭОК 19', 'ЭОК 20', 'ЭОК 21', 'ЭОК 22', 'ЭОК 23']
+AUTUMN_COURSES_2025 = []
 SPRING_COURSES_2026 = []
-AUTUMN_COURSES_2026 = []
+AUTUMN_COURSES_2026 = ['ПрИнж_ТВМС', 'Мат_стат_ПМКАИБАС']
 
-# Недельные диапазоны (полные, как в вашем исходном коде)
 WEEK_RANGES = {
     'SPRING_2021': [
         ('2021-02-08', '2021-02-15'), ('2021-02-15', '2021-02-22'), ('2021-02-22', '2021-03-01'),
@@ -205,23 +152,14 @@ WEEK_RANGES = {
     ],
 }
 
-# Соответствие курсов преподавателям
 teacher_dict = {
-    'ЭОК 1': 'Преподаватель 1', 'ЭОК 2': 'Преподаватель 1',
-    'ЭОК 3': 'Преподаватель 1', 'ЭОК 4': 'Преподаватель 1',
-    'ЭОК 5': 'Преподаватель 2', 'ЭОК 6': 'Преподаватель 3',
-    'ЭОК 7': 'Преподаватель 3', 'ЭОК 8': 'Преподаватель 4',
-    'ЭОК 9': 'Преподаватель 1', 'ЭОК 10': 'Преподаватель 1',
     'ЭОК 11': 'Преподаватель 3', 'ЭОК 12': 'Преподаватель 3',
     'ЭОК 13': 'Преподаватель 5', 'ЭОК 14': 'Преподаватель 1',
     'ЭОК 15': 'Преподаватель 2', 'ЭОК 16': 'Преподаватель 1',
-    'ЭОК 17': 'Преподаватель 6', 'ЭОК 18': 'Преподаватель 1',
-    'ЭОК 19': 'Преподаватель 6', 'ЭОК 20': 'Преподаватель 1',
-    'ЭОК 21': 'Преподаватель 1', 'ЭОК 22': 'Преподаватель 6',
-    'ЭОК 23': 'Преподаватель 6',
+    'ЭОК 17': 'Преподаватель 6', 'ПрИнж_ТВМС': 'Есин Роман Витальевич',
+    'Мат_стат_ПМКАИБАС': 'Есин Роман Витальевич',
 }
 
-# Пароли
 TEACHER_CREDENTIALS = {
     'Преподаватель 1': 'pass1',
     'Преподаватель 2': 'pass2',
@@ -229,24 +167,53 @@ TEACHER_CREDENTIALS = {
     'Преподаватель 4': 'pass4',
     'Преподаватель 5': 'pass5',
     'Преподаватель 6': 'pass6',
+    'Есин Роман Витальевич': 'esin',
     'Заведующий': 'headpass',
 }
 
+# Преподаватели, скрываемые в интерфейсе заведующего
+HIDDEN_TEACHERS = [
+    'Преподаватель 1', 'Преподаватель 2', 'Преподаватель 3',
+    'Преподаватель 4', 'Преподаватель 5', 'Преподаватель 6',
+]
+
+# ==================== НАСТРОЙКИ ОБРАТНОЙ СВЯЗИ ====================
+FEEDBACK_RECIPIENT = "baturoevgeni@yandex.ru"
+SMTP_HOST = "smtp.yandex.ru"
+SMTP_PORT = 465
+SMTP_USER = "baturoevgeni@yandex.ru"
+SMTP_PASSWORD = "pcgzlwghvoekmtgr"
+SMTP_USE_SSL = True
+FEEDBACK_FILE = "feedback_messages.csv"
+FEEDBACK_LOCK = threading.Lock()
+
+# ==================== УНИВЕРСАЛЬНЫЙ ПАРСЕР ДАТ ====================
+def parse_time_column(series):
+    """
+    Универсальный парсер даты/времени из логов Moodle.
+
+    Работает как со старым форматом '18/09/26, 09:19' (без секунд),
+    так и с новым '18/09/26, 09:19:35' (с секундами),
+    а также с рядом других вариантов ('.', '-', четырёхзначный год и т.п.).
+
+    dayfirst=True — обязателен, чтобы 18/09/26 читалось как 18 сентября,
+    а не как 9-е число 18-го месяца.
+    """
+    return pd.to_datetime(series, errors='coerce', dayfirst=True)
+
+
 # Загрузка данных логов
 courses = {}
-# Список служебных/системных пользователей, которых нужно исключить
 EXCLUDE_USERS = ['web', 'Система', '..."', ' ..."', 'в рамк..."', ' в рамк..."', ' ост..."', 'ост..."', ' для обучен..."', 'для обучен..."']
 
 for name, path in FILE_PATHS.items():
     try:
         df = pd.read_excel(path)
-        # Очистка: удаляем строки с системными именами
         if 'Полное имя пользователя' in df.columns:
             df = df[~df['Полное имя пользователя'].isin(EXCLUDE_USERS)]
             df = df.dropna(subset=['Полное имя пользователя'])
 
         if 'Затронутый пользователь' in df.columns:
-            # Удаляем строки, где "Затронутый пользователь" входит в список исключений
             df = df[~df['Затронутый пользователь'].isin(EXCLUDE_USERS)]
             df = df.dropna(subset=['Затронутый пользователь'])
         courses[name] = df
@@ -255,7 +222,6 @@ for name, path in FILE_PATHS.items():
         print(f"Ошибка загрузки {name}: {e}")
         courses[name] = pd.DataFrame()
 
-# Стиль графиков
 GRAPH_STYLE = {
     'height': 500,
     'margin': {'l': 50, 'r': 50, 'b': 100, 't': 100, 'pad': 4},
@@ -280,7 +246,7 @@ def load_logs_from_file():
             with open(LOG_FILE, 'r', encoding='utf-8', newline='') as f:
                 reader = csv.DictReader(f)
                 for row in reader:
-                    row['error'] = row.get('error', 'False') == 'True'
+                    row.pop('error', None)
                     logs.append(row)
         except Exception as e:
             print(f"Ошибка загрузки логов: {e}")
@@ -300,7 +266,6 @@ def log_action(user, action, details, error=False, ip=None, user_agent=None, sou
         'user': user,
         'action': action,
         'details': details,
-        'error': 'True' if error else 'False',
         'ip': ip or 'N/A',
         'source': source
     }
@@ -309,7 +274,7 @@ def log_action(user, action, details, error=False, ip=None, user_agent=None, sou
         file_exists = os.path.isfile(LOG_FILE)
         try:
             with open(LOG_FILE, 'a', encoding='utf-8', newline='') as f:
-                writer = csv.DictWriter(f, fieldnames=['timestamp', 'user', 'action', 'details', 'error', 'ip', 'source'])
+                writer = csv.DictWriter(f, fieldnames=['timestamp', 'user', 'action', 'details', 'ip', 'source'])
                 if not file_exists:
                     writer.writeheader()
                 writer.writerow(new_entry)
@@ -337,6 +302,102 @@ def get_request_client_info():
         return ip, user_agent
     except RuntimeError:
         return 'N/A', 'N/A'
+
+# ==================== ФУНКЦИИ ОБРАТНОЙ СВЯЗИ ====================
+def save_feedback_to_csv(name, role, subject, message, ip):
+    file_exists = os.path.isfile(FEEDBACK_FILE)
+    with FEEDBACK_LOCK:
+        try:
+            with open(FEEDBACK_FILE, 'a', encoding='utf-8', newline='') as f:
+                writer = csv.DictWriter(f, fieldnames=[
+                    'timestamp', 'user', 'role', 'subject', 'message', 'ip'
+                ])
+                if not file_exists:
+                    writer.writeheader()
+                writer.writerow({
+                    'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    'user': name,
+                    'role': role,
+                    'subject': subject,
+                    'message': message.replace('\n', ' | '),
+                    'ip': ip or 'N/A'
+                })
+        except Exception as e:
+            print(f"Ошибка сохранения обращения: {e}")
+
+
+def send_feedback_email(name, role, subject, message, ip):
+    try:
+        msg = MIMEMultipart()
+        msg['From'] = SMTP_USER
+        msg['To'] = FEEDBACK_RECIPIENT
+        msg['Subject'] = Header(f"[Обратная связь] {subject}", 'utf-8')
+
+        body = (
+            f"Новое сообщение обратной связи\n"
+            f"{'=' * 50}\n"
+            f"От: {name}\n"
+            f"Роль: {role}\n"
+            f"Время: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
+            f"IP: {ip or 'N/A'}\n"
+            f"{'=' * 50}\n\n"
+            f"Тема: {subject}\n\n"
+            f"Сообщение:\n{message}\n"
+        )
+        msg.attach(MIMEText(body, 'plain', 'utf-8'))
+
+        if SMTP_USE_SSL:
+            server = smtplib.SMTP_SSL(SMTP_HOST, SMTP_PORT, timeout=15)
+        else:
+            server = smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=15)
+            server.starttls()
+
+        server.login(SMTP_USER, SMTP_PASSWORD)
+        server.send_message(msg)
+        server.quit()
+        return True, ""
+    except Exception as e:
+        return False, str(e)
+
+
+def feedback_page(user):
+    return f'''
+    <!doctype html>
+    <html>
+    <head>
+        <title>Обратная связь</title>
+        <meta charset="utf-8">
+        <link rel="stylesheet"
+              href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css">
+    </head>
+    <body>
+    <div class="container mt-5" style="max-width: 700px;">
+        <div class="d-flex justify-content-between align-items-center mb-4">
+            <h2>Обратная связь</h2>
+            <div>
+                <a href="/dash/" class="btn btn-outline-primary btn-sm">На главную</a>
+                <a href="/logout" class="btn btn-outline-danger btn-sm">Выйти</a>
+            </div>
+        </div>
+        <p class="text-muted">Вы вошли как <b>{user}</b>. Сообщение уйдёт администратору на email.</p>
+
+        <form method="post">
+            <div class="form-group">
+                <label>Тема *</label>
+                <input type="text" name="subject" class="form-control" maxlength="200"
+                       placeholder="Например: Ошибка в отчёте по курсу" required>
+            </div>
+            <div class="form-group">
+                <label>Сообщение *</label>
+                <textarea name="message" class="form-control" rows="8" maxlength="5000"
+                          placeholder="Опишите проблему, замечание или предложение..." required></textarea>
+            </div>
+            <button type="submit" class="btn btn-primary">Отправить</button>
+        </form>
+    </div>
+    </body>
+    </html>
+    '''
 
 # ==================== ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ====================
 def get_week_ranges_for_course(course_name):
@@ -366,14 +427,20 @@ def get_week_ranges_for_course(course_name):
         return WEEK_RANGES['SPRING_2021']
     return WEEK_RANGES['AUTUMN_2023']
 
+
 def get_actual_weeks_count(df, selected_course):
+    """
+    Возвращает число недель, доступных для анализа.
+    Считаем неделю «доступной», если её начало уже наступило
+    (чтобы учитывать текущую незавершённую неделю).
+    """
     try:
         week_ranges = get_week_ranges_for_course(selected_course)
         current_date = datetime.now()
         actual_weeks = 0
         for week_num, (start_date, end_date) in enumerate(week_ranges, 1):
-            end_dt = pd.to_datetime(end_date)
-            if current_date >= end_dt:
+            start_dt = pd.to_datetime(start_date)
+            if current_date >= start_dt:
                 actual_weeks = week_num
             else:
                 break
@@ -382,6 +449,7 @@ def get_actual_weeks_count(df, selected_course):
         return actual_weeks
     except Exception:
         return len(week_ranges)
+
 
 def calculate_feedback_speed(df, teacher_name):
     try:
@@ -397,7 +465,7 @@ def calculate_feedback_speed(df, teacher_name):
         df_feedback = df[(df['Полное имя пользователя'] == teacher_name) & (df['Название события'].isin(feedback_events))].copy()
         if df_feedback.empty:
             return 0
-        df_feedback['Время'] = pd.to_datetime(df_feedback['Время'], format="%d/%m/%y, %H:%M", errors='coerce')
+        df_feedback['Время'] = parse_time_column(df_feedback['Время'])
         df_feedback = df_feedback.dropna(subset=['Время']).sort_values('Время')
         df_feedback['time_diff'] = df_feedback['Время'].diff()
         time_diffs = df_feedback['time_diff'][df_feedback['time_diff'] < pd.Timedelta(days=7)]
@@ -409,12 +477,13 @@ def calculate_feedback_speed(df, teacher_name):
         log_action(teacher_name, "Ошибка", f"calculate_feedback_speed: {str(e)}", error=True, ip=ip, user_agent=ua)
         return 0
 
+
 def calculate_session_length(df, teacher_name, selected_course, session_threshold_minutes=30):
     try:
         teacher_df = df[df['Полное имя пользователя'] == teacher_name].copy()
         if teacher_df.empty:
             return 0, {}, {}
-        teacher_df['Время'] = pd.to_datetime(teacher_df['Время'], format="%d/%m/%y, %H:%M", errors='coerce')
+        teacher_df['Время'] = parse_time_column(teacher_df['Время'])
         teacher_df = teacher_df.dropna(subset=['Время']).sort_values('Время')
         week_ranges = get_week_ranges_for_course(selected_course)
         actual_weeks_count = get_actual_weeks_count(df, selected_course)
@@ -448,15 +517,15 @@ def calculate_session_length(df, teacher_name, selected_course, session_threshol
         log_action(teacher_name, "Ошибка", f"calculate_session_length: {str(e)}", error=True, ip=ip, user_agent=ua)
         return 0, {}, {}
 
+
 def calculate_pedagogical_activity_level(metrics):
     weights = {
-        'weekly_activity': 0.20, 'session_length': 0.20,
-        'student_engagement': 0.20, 'course_updates': 0.20, 'feedback_speed': 0.20
+        'weekly_activity': 0.25, 'session_length': 0.25,
+         'course_updates': 0.25, 'feedback_speed': 0.25
     }
     pedagogical_thresholds = {
         'weekly_activity': [(50,100),(30,75),(15,50),(5,25),(0,10)],
         'session_length': [(45,100),(30,80),(20,60),(10,40),(0,20)],
-        'student_engagement': [(0.7,100),(0.5,80),(0.3,60),(0.1,40),(0,20)],
         'course_updates': [(10,100),(7,80),(5,60),(3,40),(0,20)],
         'feedback_speed': [(0,100),(24,80),(48,60),(72,40),(96,20)]
     }
@@ -488,6 +557,7 @@ def calculate_pedagogical_activity_level(metrics):
     else:
         level = "Очень низкий"; color = "#dc3545"; description = "Необходимо повышение активности"
     return {'total_score': round(total_score), 'level': level, 'color': color, 'description': description, 'detailed_scores': normalized_scores}
+
 
 def create_graph_with_tooltip(graph_id, figure=None, tooltip_text=""):
     if figure is None:
@@ -532,10 +602,9 @@ app = Dash(__name__, server=server, external_stylesheets=[dbc.themes.BOOTSTRAP,
 weekly_models = {}
 weekly_features_list = {}
 WEEKLY_MODELS_DIR = "weekly_models"
-GRADES_FILE = os.path.join(BASE_DIR, "C:/Users/Zver/Downloads/student_grades_only.xlsx")
+GRADES_FILE = "C:/Users/Zver/Downloads/student_grades_only.xlsx"
 
 
-# ==================== ФУНКЦИЯ ПОСТРОЕНИЯ НЕДЕЛЬНОГО ДАТАСЕТА ИЗ ЛОГОВ ====================
 def build_weekly_dataset_from_logs(grades_file_path, max_weeks=18):
     grades_df = pd.read_excel(grades_file_path)
     if not all(col in grades_df.columns for col in ['Студент', 'Курс', 'Сдал']):
@@ -548,7 +617,7 @@ def build_weekly_dataset_from_logs(grades_file_path, max_weeks=18):
         if course_name not in courses or courses[course_name].empty:
             continue
         df_course = courses[course_name].copy()
-        df_course['Время'] = pd.to_datetime(df_course['Время'], format="%d/%m/%y, %H:%M", errors='coerce')
+        df_course['Время'] = parse_time_column(df_course['Время'])
         df_course = df_course.dropna(subset=['Время'])
         week_ranges = get_week_ranges_for_course(course_name)
         actual_weeks = min(len(week_ranges), max_weeks)
@@ -590,7 +659,6 @@ def build_weekly_dataset_from_logs(grades_file_path, max_weeks=18):
     return df_weekly
 
 
-# ==================== ФУНКЦИЯ ОБУЧЕНИЯ НЕДЕЛЬНЫХ МОДЕЛЕЙ ====================
 def train_weekly_models(grades_file_path):
     print("Построение недельного датасета из логов...")
     df_weekly = build_weekly_dataset_from_logs(grades_file_path)
@@ -628,7 +696,6 @@ def train_weekly_models(grades_file_path):
     return df_weekly
 
 
-# ==================== ЗАГРУЗКА МОДЕЛЕЙ ПРИ СТАРТЕ ====================
 def load_weekly_models():
     global weekly_models, weekly_features_list
     weekly_models.clear()
@@ -648,7 +715,6 @@ def load_weekly_models():
     print(f"Загружено моделей: {len(weekly_models)}")
 
 
-# ==================== ФУНКЦИЯ ИЗВЛЕЧЕНИЯ ПРИЗНАКОВ ДЛЯ ПРОГНОЗА ====================
 def extract_weekly_features_for_student(df_course, student_name, current_week, week_ranges):
     df_student = df_course[df_course['Полное имя пользователя'] == student_name].copy()
     if df_student.empty:
@@ -681,7 +747,6 @@ def extract_weekly_features_for_student(df_course, student_name, current_week, w
     }
 
 
-# ==================== ФУНКЦИЯ ПРЕДСКАЗАНИЯ ====================
 def predict_course_weekly(course_name, week_num):
     if week_num not in weekly_models:
         raise ValueError(f"Модель для недели {week_num} не загружена. Доступны: {list(weekly_models.keys())}")
@@ -691,20 +756,17 @@ def predict_course_weekly(course_name, week_num):
         raise ValueError(f"Курс {course_name} не найден")
 
     df_course = courses[course_name].copy()
-    df_course['Время'] = pd.to_datetime(df_course['Время'], format="%d/%m/%y, %H:%M", errors='coerce')
+    df_course['Время'] = parse_time_column(df_course['Время'])
     df_course = df_course.dropna(subset=['Время'])
     week_ranges = get_week_ranges_for_course(course_name)
     end_date = pd.to_datetime(week_ranges[week_num - 1][1])
 
-    # Ограничиваем данные только текущей неделей для извлечения признаков
     df_course_upto_week = df_course[df_course['Время'] <= end_date]
 
     teacher = teacher_dict.get(course_name)
 
-    # ---------- ИСПРАВЛЕНИЕ: полный список студентов за весь семестр ----------
-    # Берём исходный DataFrame без ограничения по дате
     df_full = courses[course_name].copy()
-    df_full['Время'] = pd.to_datetime(df_full['Время'], format="%d/%m/%y, %H:%M", errors='coerce')
+    df_full['Время'] = parse_time_column(df_full['Время'])
     df_full = df_full.dropna(subset=['Время'])
 
     if course_name == 'ЭОК 9':
@@ -712,16 +774,13 @@ def predict_course_weekly(course_name, week_num):
     elif course_name == 'ЭОК 10':
         all_students = students_to_keep_df_course10.copy()
     else:
-        # Все студенты (кроме преподавателя) за весь период семестра
         all_students = df_full[df_full['Полное имя пользователя'] != teacher]['Полное имя пользователя'].unique()
-    # -----------------------------------------------------------------------
 
     predictions = []
     for student in all_students:
-        # Признаки извлекаем из данных, ограниченных текущей неделей
         features = extract_weekly_features_for_student(df_course_upto_week, student, week_num, week_ranges)
         if features is None:
-            proba = 0.1  # студент ещё не заходил → низкая вероятность
+            proba = 0.1
         else:
             X_pred = pd.DataFrame([features])[feature_cols]
             proba = model.predict_proba(X_pred)[0][1]
@@ -769,7 +828,8 @@ def download_predictions(course_name, week):
 # ==================== LAYOUTS ====================
 def home_page(current_teacher):
     semesters = ['Осенний', 'Весенний']
-    teachers_list = [t for t in TEACHER_CREDENTIALS.keys() if t != 'Заведующий']
+    teachers_list = [t for t in TEACHER_CREDENTIALS.keys()
+                     if t != 'Заведующий' and t not in HIDDEN_TEACHERS]
     admin_panel = html.Div()
     if current_teacher == 'Заведующий':
         admin_panel = html.Div([
@@ -784,7 +844,9 @@ def home_page(current_teacher):
             html.H5("Прогноз для текущего курса", style={'margin-top': '20px'}),
             dbc.Row([
                 dbc.Col(
-                    dcc.Dropdown(id='predict-course-select', options=[{'label': c, 'value': c} for c in courses.keys()],
+                    dcc.Dropdown(id='predict-course-select',
+                                 options=[{'label': c, 'value': c} for c in courses.keys()
+                                          if teacher_dict.get(c) not in HIDDEN_TEACHERS],
                                  placeholder="Выберите курс")),
                 dbc.Col(dcc.Dropdown(id='predict-week-select',
                                      options=[{'label': f'Неделя {w}', 'value': w} for w in range(1, 19)], value=1,
@@ -808,6 +870,9 @@ def home_page(current_teacher):
                               'borderRadius': '5px', 'textDecoration': 'none'}),
                 html.A("Страница преподавателя", href="/dash/teacher",
                        style={'margin-left': '10px', 'color': 'white', 'backgroundColor': '#007BFF',
+                              'padding': '8px 12px', 'borderRadius': '5px', 'textDecoration': 'none'}),
+                html.A("Обратная связь", href="/feedback",
+                       style={'margin-left': '10px', 'color': 'white', 'backgroundColor': '#20c997',
                               'padding': '8px 12px', 'borderRadius': '5px', 'textDecoration': 'none'}),
                 html.A("Цифровой след", href="/dash/logs",
                        style={'margin-left': '10px', 'color': 'white', 'backgroundColor': '#6f42c1',
@@ -915,7 +980,8 @@ def home_page(current_teacher):
 
 def teacher_page(current_teacher):
     semesters = ['Осенний', 'Весенний']
-    teachers_list = [t for t in TEACHER_CREDENTIALS.keys() if t != 'Заведующий']
+    teachers_list = [t for t in TEACHER_CREDENTIALS.keys()
+                     if t != 'Заведующий' and t not in HIDDEN_TEACHERS]
     empty_fig = go.Figure().update_layout(title="Загрузка данных...", xaxis=dict(visible=False),
                                           yaxis=dict(visible=False))
     return html.Div(style={'padding': '20px'}, children=[
@@ -929,6 +995,9 @@ def teacher_page(current_teacher):
                               'borderRadius': '5px', 'textDecoration': 'none'}),
                 html.A("Главная страница", href="/dash/",
                        style={'margin-left': '10px', 'color': 'white', 'backgroundColor': '#007BFF',
+                              'padding': '8px 12px', 'borderRadius': '5px', 'textDecoration': 'none'}),
+                html.A("Обратная связь", href="/feedback",
+                       style={'margin-left': '10px', 'color': 'white', 'backgroundColor': '#20c997',
                               'padding': '8px 12px', 'borderRadius': '5px', 'textDecoration': 'none'}),
                 html.A("Цифровой след", href="/dash/logs",
                        style={'margin-left': '10px', 'color': 'white', 'backgroundColor': '#6f42c1',
@@ -1001,6 +1070,9 @@ def digital_footprint_page():
                 html.A("Главная страница", href="/dash/",
                        style={'color': 'white', 'backgroundColor': '#007BFF', 'padding': '8px 12px',
                               'borderRadius': '5px', 'textDecoration': 'none'}),
+                html.A("Обратная связь", href="/feedback",
+                       style={'margin-left': '10px', 'color': 'white', 'backgroundColor': '#20c997',
+                              'padding': '8px 12px', 'borderRadius': '5px', 'textDecoration': 'none'}),
                 html.A("Выйти", href="/logout",
                        style={'margin-left': '10px', 'color': 'white', 'backgroundColor': '#dc3545',
                               'padding': '8px 12px', 'borderRadius': '5px', 'textDecoration': 'none'})
@@ -1021,7 +1093,10 @@ def digital_footprint_page():
             ], style={'margin-top': '10px'}),
             dcc.Download(id='download-csv')
         ], style={'margin-bottom': '20px', 'background': '#f8f9fa', 'padding': '15px', 'border-radius': '5px'}),
-        html.Div(id='logs-table-container')
+        html.Div(id='logs-table-container'),
+        html.Hr(),
+        html.H4("Обращения пользователей (обратная связь)"),
+        html.Div(id='feedback-table-container'),
     ])
 
 
@@ -1040,6 +1115,8 @@ app.layout = html.Div([
 )
 def update_selected_teacher_for_head(head_value, current_teacher):
     if current_teacher == 'Заведующий' and head_value:
+        if head_value in HIDDEN_TEACHERS:
+            return None
         return head_value
     return current_teacher
 
@@ -1052,6 +1129,8 @@ def update_selected_teacher_for_head(head_value, current_teacher):
 )
 def update_selected_teacher_page_for_head(head_value, current_teacher):
     if current_teacher == 'Заведующий' and head_value:
+        if head_value in HIDDEN_TEACHERS:
+            return None
         return head_value
     return current_teacher
 
@@ -1173,7 +1252,7 @@ def update_main_graphs(selected_course, selected_week, teacher_name, current_use
                    f"Преподаватель: {teacher_name}, Курс: {selected_course}, неделя: {selected_week}", ip=ip,
                    user_agent=ua)
         df = courses[selected_course].copy()
-        df['Время'] = pd.to_datetime(df['Время'], format="%d/%m/%y, %H:%M", errors='coerce')
+        df['Время'] = parse_time_column(df['Время'])
         actual_weeks = get_actual_weeks_count(df, selected_course)
         week_ranges = get_week_ranges_for_course(selected_course)
         actual_week_ranges = week_ranges[:actual_weeks]
@@ -1423,7 +1502,6 @@ def update_main_graphs(selected_course, selected_week, teacher_name, current_use
         metrics = {
             'weekly_activity': avg_teacher,
             'session_length': avg_sess_len,
-            'student_engagement': abs(corr) if 'corr' in locals() else 0,
             'course_updates': total_updates,
             'feedback_speed': calculate_feedback_speed(df, teacher_name)
         }
@@ -1478,7 +1556,7 @@ def update_teacher_dashboards(selected_semester, teacher_name, current_user):
             df_course = courses[course]
             if df_course.empty:
                 continue
-            df_course['Время'] = pd.to_datetime(df_course['Время'], format="%d/%m/%y, %H:%M", errors='coerce')
+            df_course['Время'] = parse_time_column(df_course['Время'])
             df_teacher_course = df_course[df_course['Полное имя пользователя'] == teacher_name]
             df_students_course = df_course[df_course['Полное имя пользователя'] != teacher_name]
             if selected_semester == 'Весенний':
@@ -1595,6 +1673,11 @@ def update_teacher_info(teacher_name, avg_teacher, avg_student, current_user):
                                 'position': 'Преподаватель математической логики и теории алгоритмов',
                                 'education': 'Доктор педагогических наук', 'experience': '21 год преподавания',
                                 'placeOfWork': 'Кафедра прикладной математики и анализа данных, профессор',
+                                'phone': '+7 (456) 789-01-23', 'email': 'prep6@university.edu'},
+            'Есин Роман Витальевич': {'avatar': 'https://img.icons8.com/color/96/000000/user-male-circle--v1.png',
+                                'position': 'Преподаватель математической логики и теории алгоритмов',
+                                'education': 'Доктор педагогических наук', 'experience': '21 год преподавания',
+                                'placeOfWork': 'Кафедра прикладной математики и анализа данных, профессор',
                                 'phone': '+7 (456) 789-01-23', 'email': 'prep6@university.edu'}
         }
         info = teacher_info.get(teacher_name, {})
@@ -1661,10 +1744,8 @@ def update_teacher_stats(teacher_name, semester, avg_teacher, avg_student):
     if not teacher_name:
         return 0, 0, "0.0", "0.0"
 
-    # Получаем курсы преподавателя
     teacher_courses = [c for c, t in teacher_dict.items() if t == teacher_name]
 
-    # Фильтруем по семестру
     if semester == 'Весенний':
         allowed = (SPRING_COURSES_2026 + SPRING_COURSES_2025 + SPRING_COURSES_2024 +
                    SPRING_COURSES_2023 + SPRING_COURSES_2022 + SPRING_COURSES_2021)
@@ -1673,7 +1754,6 @@ def update_teacher_stats(teacher_name, semester, avg_teacher, avg_student):
                    AUTUMN_COURSES_2023 + AUTUMN_COURSES_2022 + AUTUMN_COURSES_2021)
     teacher_courses = [c for c in teacher_courses if c in allowed]
 
-    # Подсчёт общего количества студентов (как на главной странице)
     total_students = 0
     for course in teacher_courses:
         df = courses[course]
@@ -1684,7 +1764,6 @@ def update_teacher_stats(teacher_name, semester, avg_teacher, avg_student):
         elif course == 'ЭОК 10':
             students = len(students_to_keep_df_course10)
         else:
-            # Для остальных курсов – все уникальные студенты (кроме преподавателя) из логов за весь семестр
             students = df[df['Полное имя пользователя'] != teacher_name]['Полное имя пользователя'].nunique()
         total_students += students
 
@@ -1736,10 +1815,10 @@ def update_logs_table(selected_user, action_contains, start_date, end_date, rese
             [
                 html.Thead(html.Tr(
                     [html.Th("Время"), html.Th("Пользователь"), html.Th("Действие"), html.Th("Детали"), html.Th("IP"),
-                     html.Th("Источник"), html.Th("Ошибка")])),
+                     html.Th("Источник")])),
                 html.Tbody([html.Tr(
                     [html.Td(l['timestamp']), html.Td(l['user']), html.Td(l['action']), html.Td(l['details']),
-                     html.Td(l['ip']), html.Td(l['source']), html.Td("Да" if l['error'] else "Нет")]) for l in
+                     html.Td(l['ip']), html.Td(l['source'])]) for l in
                             reversed(filtered)])
             ],
             bordered=True, hover=True, striped=True, responsive=True, style={'margin-top': '20px'}
@@ -1757,14 +1836,42 @@ def export_logs_csv(n_clicks):
         with logs_lock:
             logs_copy = logs.copy()
         output = io.StringIO()
-        writer = csv.DictWriter(output, fieldnames=['timestamp', 'user', 'action', 'details', 'error', 'ip', 'source'])
+        writer = csv.DictWriter(output, fieldnames=['timestamp', 'user', 'action', 'details', 'ip', 'source'])
         writer.writeheader()
         for log in logs_copy:
             writer.writerow(
-                {k: log.get(k, '') for k in ['timestamp', 'user', 'action', 'details', 'error', 'ip', 'source']})
+                {k: log.get(k, '') for k in ['timestamp', 'user', 'action', 'details', 'ip', 'source']})
         csv_content = output.getvalue()
         return dict(content=csv_content, filename=f"digital_footprint_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv")
     return None
+
+
+@app.callback(
+    Output('feedback-table-container', 'children'),
+    Input('url', 'pathname')
+)
+def show_feedback_table(pathname):
+    if pathname != '/dash/logs':
+        return ""
+    if not os.path.isfile(FEEDBACK_FILE):
+        return html.Div("Обращений пока нет.", style={'padding': '10px'})
+    try:
+        df = pd.read_csv(FEEDBACK_FILE)
+        if df.empty:
+            return html.Div("Обращений пока нет.")
+        rows = [
+            html.Tr([html.Td(r['timestamp']), html.Td(r['user']),
+                     html.Td(r['subject']), html.Td(r['message'])])
+            for _, r in df.tail(50).iloc[::-1].iterrows()
+        ]
+        return dbc.Table(
+            [html.Thead(html.Tr([html.Th("Время"), html.Th("Пользователь"),
+                                 html.Th("Тема"), html.Th("Сообщение")])),
+             html.Tbody(rows)],
+            bordered=True, hover=True, striped=True, responsive=True
+        )
+    except Exception as e:
+        return html.Div(f"Ошибка чтения: {e}", style={'color': 'red'})
 
 
 # ==================== НОВЫЕ CALLBACK'И ДЛЯ МОДЕЛЕЙ ====================
@@ -1805,10 +1912,14 @@ def show_predictions(n_clicks, course_name, week_num):
             table = dbc.Table(
                 [
                     html.Thead(html.Tr([html.Th("Студент"), html.Th("Вероятность сдачи"), html.Th("Прогноз")])),
-                    html.Tbody([html.Tr([html.Td(row['Студент']), html.Td(f"{row['Вероятность_сдачи']:.2f}"),
-                                         html.Td(row['Прогноз'],
-                                                 style={'color': 'green' if row['Прогноз'] == 'Сдаст' else 'red'})]) for
-                                _, row in df_pred.iterrows()])
+                    html.Tbody([
+                        html.Tr([
+                            html.Td(row['Студент']),
+                            html.Td(f"{row['Вероятность_сдачи']:.2f}"),
+                            html.Td(row['Прогноз'],
+                                    style={'color': 'green' if row['Прогноз'] == 'Сдаст' else 'red'})
+                        ]) for _, row in df_pred.iterrows()
+                    ])
                 ],
                 bordered=True, hover=True, striped=True, responsive=True
             )
@@ -1831,7 +1942,7 @@ def download_pred_link(n_clicks, course_name, week_num):
     return "#"
 
 
-# ==================== НОВЫЙ CALLBACK ДЛЯ ПРОГНОЗОВ ПРЕПОДАВАТЕЛЯ (упрощённо) ====================
+# ==================== CALLBACK ДЛЯ ПРОГНОЗОВ ПРЕПОДАВАТЕЛЯ ====================
 @app.callback(
     Output('teacher-predictions-panel', 'children'),
     [Input('selected-teacher-page', 'data'),
@@ -1843,10 +1954,10 @@ def update_teacher_predictions(teacher_name, semester, current_user):
     ip, ua = get_request_client_info()
     if not teacher_name:
         return html.Div("Выберите преподавателя для просмотра прогнозов.",
-                        style={'padding': '15px', 'background': '#f8f9fa'}), "0"
+                        style={'padding': '15px', 'background': '#f8f9fa'})
     if not weekly_models:
         return html.Div("Модели не загружены. Обратитесь к заведующему для обучения моделей.",
-                        style={'color': 'red', 'padding': '15px'}), "0"
+                        style={'color': 'red', 'padding': '15px'})
 
     teacher_courses = [c for c, t in teacher_dict.items() if t == teacher_name]
     if semester == 'Весенний':
@@ -1858,9 +1969,8 @@ def update_teacher_predictions(teacher_name, semester, current_user):
     teacher_courses = [c for c in teacher_courses if c in allowed]
     if not teacher_courses:
         return html.Div(f"У преподавателя {teacher_name} нет курсов в {semester} семестре.",
-                        style={'padding': '15px'}), "0"
+                        style={'padding': '15px'})
 
-    # Используем максимальную обученную неделю (как на главной странице)
     current_week = max(weekly_models.keys())
 
     course_data = []
@@ -1883,12 +1993,10 @@ def update_teacher_predictions(teacher_name, semester, current_user):
             continue
 
     if not course_data:
-        return html.Div("Не удалось получить прогнозы", style={'color': 'orange'}), "0"
+        return html.Div("Не удалось получить прогнозы", style={'color': 'orange'})
 
-    # ========== Общее количество студентов (сумма по всем курсам) ==========
     total_students_all = sum(cd['total'] for cd in course_data)
 
-    # ========== СВЕТОФОР (общий, для всех курсов) ==========
     if all_risk_probs:
         green = sum(1 for p in all_risk_probs if p <= 0.40)
         yellow = sum(1 for p in all_risk_probs if 0.40 < p <= 0.60)
@@ -1922,14 +2030,12 @@ def update_teacher_predictions(teacher_name, semester, current_user):
     else:
         risk_cards = html.Div()
 
-    # Гистограмма
     hist_fig = px.histogram(x=all_probs, nbins=20,
                             title=f'Распределение вероятностей сдачи (неделя {current_week})',
                             labels={'x': 'Вероятность сдачи', 'y': 'Количество студентов'})
     hist_fig.update_layout(bargap=0.05)
     hist_graph = dcc.Graph(figure=hist_fig)
 
-    # Таблица по курсам со светофором для каждого курса
     table_rows = []
     for cd in course_data:
         df_course = cd['df']
@@ -1937,11 +2043,13 @@ def update_teacher_predictions(teacher_name, semester, current_user):
         green_c = sum(1 for r in risks if r <= 0.40)
         yellow_c = sum(1 for r in risks if 0.40 < r <= 0.60)
         red_c = sum(1 for r in risks if r > 0.60)
-        total_c = len(risks)
 
-        green_cell = html.Td(html.Strong(str(green_c), style={'color': '#28a745', 'fontWeight': 'bold'}) if green_c > 0 else html.Td("0"))
-        yellow_cell = html.Td(html.Strong(str(yellow_c), style={'color': '#856404', 'fontWeight': 'bold'}) if yellow_c > 0 else html.Td("0"))
-        red_cell = html.Td(html.Strong(str(red_c), style={'color': '#dc3545', 'fontWeight': 'bold'}) if red_c > 0 else html.Td("0"))
+        green_cell = html.Td(html.Strong(str(green_c), style={'color': '#28a745', 'fontWeight': 'bold'})
+                             if green_c > 0 else "0")
+        yellow_cell = html.Td(html.Strong(str(yellow_c), style={'color': '#856404', 'fontWeight': 'bold'})
+                              if yellow_c > 0 else "0")
+        red_cell = html.Td(html.Strong(str(red_c), style={'color': '#dc3545', 'fontWeight': 'bold'})
+                           if red_c > 0 else "0")
 
         table_rows.append(html.Tr([
             html.Td(cd['course']),
@@ -2011,10 +2119,8 @@ def update_course_predictions(course_name, teacher_name, current_user):
         if df_pred.empty:
             return html.Div("Нет данных")
 
-        # Вычисляем риск несдачи
         risk = 1 - df_pred['Вероятность_сдачи']
 
-        # Функция для определения цвета и текста риска
         def get_risk_label(risk_val):
             if risk_val <= 0.40:
                 return html.Span("Низкий", style={'color': '#28a745', 'font-weight': 'bold'})
@@ -2023,13 +2129,11 @@ def update_course_predictions(course_name, teacher_name, current_user):
             else:
                 return html.Span("Высокий", style={'color': '#dc3545', 'font-weight': 'bold'})
 
-        # Распределение рисков для карточек светофора (общая статистика)
         green = sum(1 for r in risk if r <= 0.40)
         yellow = sum(1 for r in risk if 0.40 < r <= 0.60)
         red = sum(1 for r in risk if r > 0.60)
         total = len(df_pred)
 
-        # Карточки светофора
         colors = {'green': '#28a745', 'yellow': '#ffc107', 'red': '#dc3545'}
         risk_cards = dbc.Row([
             dbc.Col(html.Div([
@@ -2055,13 +2159,12 @@ def update_course_predictions(course_name, teacher_name, current_user):
                       'borderRadius': '10px', 'background': '#f9f9f9'}), width=4),
         ], className="g-4", style={'margin-bottom': '30px'})
 
-        # Таблица студентов с цветным индикатором риска
         table = dbc.Table(
             [
                 html.Thead(html.Tr([
                     html.Th("Студент"),
                     html.Th("Вероятность сдачи"),
-                    html.Th("Риск")  # вместо "Прогноз"
+                    html.Th("Риск")
                 ])),
                 html.Tbody([
                     html.Tr([
@@ -2074,7 +2177,6 @@ def update_course_predictions(course_name, teacher_name, current_user):
             bordered=True, hover=True, striped=True, responsive=True
         )
 
-        # Гистограмма
         hist_fig = px.histogram(df_pred, x='Вероятность_сдачи', nbins=20,
                                 title=f'Распределение вероятностей сдачи ({course_name})',
                                 labels={'x': 'Вероятность сдачи', 'y': 'Количество студентов'})
@@ -2103,6 +2205,7 @@ def update_course_predictions(course_name, teacher_name, current_user):
         return summary
     except Exception as e:
         return html.Div(f"Ошибка: {str(e)}", style={'color': 'red'})
+
 
 # ==================== FLASK МАРШРУТЫ (ЛОГИН, ЛОГАУТ И ДР.) ====================
 @server.route('/login', methods=['GET', 'POST'])
@@ -2140,12 +2243,7 @@ def login_page():
                 <label>Пользователь</label>
                 <select name="teacher" class="form-control" required>
                     <option value="">-- Выберите --</option>
-                    <option value="Преподаватель 1">Преподаватель 1</option>
-                    <option value="Преподаватель 2">Преподаватель 2</option>
-                    <option value="Преподаватель 3">Преподаватель 3</option>
-                    <option value="Преподаватель 4">Преподаватель 4</option>
-                    <option value="Преподаватель 5">Преподаватель 5</option>
-                    <option value="Преподаватель 6">Преподаватель 6</option>
+                    <option value="Есин Роман Витальевич">Есин Роман Витальевич</option>
                     <option value="Заведующий">Заведующий</option>
                 </select>
             </div>
@@ -2190,6 +2288,42 @@ def admin_clear_logs():
     ip, ua = get_request_client_info()
     log_action("Система", "Очистка лога", "Лог очищен администратором", ip=ip, user_agent=ua)
     return jsonify({'status': 'success', 'message': 'Logs cleared'})
+
+
+# ==================== МАРШРУТ ОБРАТНОЙ СВЯЗИ ====================
+@server.route('/feedback', methods=['GET', 'POST'])
+@login_required
+def feedback():
+    ip, ua = get_request_client_info()
+    user = session.get('user_id', 'Unknown')
+
+    if request.method == 'POST':
+        subject = (request.form.get('subject') or '').strip()
+        message = (request.form.get('message') or '').strip()
+
+        if not subject or not message:
+            log_action(user, "Обратная связь", "Пустая тема или сообщение", error=True,
+                       ip=ip, user_agent=ua)
+            return render_template_string(
+                feedback_page(user) + "<div class='alert alert-danger'>Заполните тему и сообщение.</div>")
+
+        save_feedback_to_csv(user, user, subject, message, ip)
+
+        ok, err = send_feedback_email(user, user, subject, message, ip)
+
+        if ok:
+            log_action(user, "Обратная связь", f"Отправлено: {subject}", ip=ip, user_agent=ua)
+            return redirect('/feedback?sent=1')
+        else:
+            log_action(user, "Обратная связь", f"Ошибка отправки: {err}", error=True,
+                       ip=ip, user_agent=ua)
+            return render_template_string(
+                feedback_page(user) +
+                f"<div class='alert alert-warning'>Сообщение сохранено, но письмо не отправлено: {err}</div>")
+
+    sent_flag = request.args.get('sent') == '1'
+    success = "<div class='alert alert-success'>Спасибо! Сообщение отправлено.</div>" if sent_flag else ""
+    return render_template_string(feedback_page(user) + success)
 
 
 # ==================== РЕНДЕРИНГ СТРАНИЦ ПО URL ====================
