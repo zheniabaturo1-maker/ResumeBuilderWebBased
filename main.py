@@ -1101,8 +1101,10 @@ def digital_footprint_page():
         ], style={'margin-bottom': '20px', 'background': '#f8f9fa', 'padding': '15px', 'border-radius': '5px'}),
         html.Div(id='logs-table-container'),
         html.Hr(),
-        html.H4("Обращения пользователей (обратная связь)"),
-        html.Div(id='feedback-table-container'),
+        html.Div([
+            html.H4("Обращения пользователей (обратная связь)"),
+            html.Div(id='feedback-table-container'),
+        ], style={'display': 'none'}),
     ])
 
 
