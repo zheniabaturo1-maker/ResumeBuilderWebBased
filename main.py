@@ -26,7 +26,6 @@ import joblib
 import warnings
 warnings.filterwarnings('ignore')
 
-# ==================== КОНФИГУРАЦИЯ ====================
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 FILE_PATHS = {
     'ЭОК 11': os.path.join(BASE_DIR, "logs_ВМ 1_20220830-1619.xlsx"),
@@ -827,7 +826,9 @@ def download_predictions(course_name, week):
 
 # ==================== LAYOUTS ====================
 def home_page(current_teacher):
-    semesters = ['Осенний', 'Весенний']
+    semesters = ['Осенний',
+                 #'Весенний'
+                 ]
     teachers_list = [t for t in TEACHER_CREDENTIALS.keys()
                      if t != 'Заведующий' and t not in HIDDEN_TEACHERS]
     admin_panel = html.Div()
@@ -888,9 +889,11 @@ def home_page(current_teacher):
         ]) if current_teacher == 'Заведующий' else html.Div(),
         admin_panel,
         html.Div([
-            html.Label("Выберите семестр:", style={'font-weight': 'bold', 'margin-top': '10px'}),
-            dcc.Dropdown(id='semester-dropdown', options=[{'label': s, 'value': s} for s in semesters],
-                         value=semesters[0] if semesters else '', clearable=False),
+            html.Div([
+                html.Label("Выберите семестр:", style={'font-weight': 'bold', 'margin-top': '10px'}),
+                dcc.Dropdown(id='semester-dropdown', options=[{'label': s, 'value': s} for s in semesters],
+                             value=semesters[0] if semesters else '', clearable=False),
+            ], style={'display': 'none'}),  # скрываем выбор семестра
             html.Label("Выберите курс:", style={'font-weight': 'bold', 'margin-top': '10px'}),
             dcc.Dropdown(id='course-dropdown', options=[], value=None, clearable=False),
         ], style={'margin-bottom': '20px'}),
@@ -936,7 +939,8 @@ def home_page(current_teacher):
                 dbc.Col(html.Div(style={'background': '#f8f9fa', 'padding': '15px', 'border-radius': '5px'}, children=[
                     html.H5("Зависимость активности", style={'color': '#6c757d', 'text-align': 'center'}),
                     html.H6(id='main-statist-correlation-text',
-                            style={'color': '#007bff', 'text-align': 'center', 'margin-top': '5px'})]), width=6),
+                            style={'color': '#007bff', 'text-align': 'center', 'margin-top': '5px'})]), width=6,
+                        style={'display': 'none'}),
             ], className="g-2"),
         ]),
         html.Div(style={'margin-bottom': '20px'}, children=[
@@ -974,12 +978,14 @@ def home_page(current_teacher):
             create_graph_with_tooltip('hourly-activity-graph', None, "Средняя часовая активность"),
             create_graph_with_tooltip('course-updates-graph', None, "Активность обновления курса по неделям"),
         ]),
-        html.Div(id='course-predictions-panel', style={'margin-top': '30px'}),
+        html.Div(id='course-predictions-panel', style={'margin-top': '30px', 'display': 'none'}),
     ])
 
 
 def teacher_page(current_teacher):
-    semesters = ['Осенний', 'Весенний']
+    semesters = ['Осенний',
+                 #'Весенний'
+                 ]
     teachers_list = [t for t in TEACHER_CREDENTIALS.keys()
                      if t != 'Заведующий' and t not in HIDDEN_TEACHERS]
     empty_fig = go.Figure().update_layout(title="Загрузка данных...", xaxis=dict(visible=False),
@@ -1025,7 +1031,7 @@ def teacher_page(current_teacher):
                 html.Label("Выберите семестр:", style={'font-weight': 'bold', 'margin-top': '10px'}),
                 dcc.Dropdown(id='semester-dropdown-teacher', options=[{'label': s, 'value': s} for s in semesters],
                              value=semesters[0] if semesters else '', clearable=False, style={'margin-bottom': '20px'})
-            ]),
+            ], style={'display': 'none'}),  # скрываем выбор семестра
             html.Div(style={'margin-bottom': '20px'}, children=[
                 html.H4("Статистика активности преподавателя в электронной среде:"),
                 dbc.Row([
@@ -1056,7 +1062,7 @@ def teacher_page(current_teacher):
                 create_graph_with_tooltip('weekly-activity-graph-teacher', empty_fig,
                                           "Динамика по неделям (все курсы)"),
             ]),
-            html.Div(id='teacher-predictions-panel', style={'margin-top': '30px'})
+            html.Div(id='teacher-predictions-panel', style={'margin-top': '30px', 'display': 'none'})
         ])
     ])
 
