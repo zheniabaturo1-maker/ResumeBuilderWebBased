@@ -878,7 +878,7 @@ def home_page(current_teacher):
                 html.A("Цифровой след", href="/dash/logs",
                        style={'margin-left': '10px', 'color': 'white', 'backgroundColor': '#6f42c1',
                               'padding': '8px 12px', 'borderRadius': '5px',
-                              'textDecoration': 'none'}) if current_teacher == 'Заведующий' else html.Div()
+                              'textDecoration': 'none'}) if False else html.Div()
             ])
         ]),
         html.Div([
@@ -1008,7 +1008,7 @@ def teacher_page(current_teacher):
                 html.A("Цифровой след", href="/dash/logs",
                        style={'margin-left': '10px', 'color': 'white', 'backgroundColor': '#6f42c1',
                               'padding': '8px 12px', 'borderRadius': '5px',
-                              'textDecoration': 'none'}) if current_teacher == 'Заведующий' else html.Div()
+                              'textDecoration': 'none'}) if False else html.Div()
             ])
         ]),
         html.Div([
@@ -2347,9 +2347,8 @@ def render_page_from_url(pathname):
     if pathname == '/dash/teacher':
         return teacher_page(teacher)
     elif pathname == '/dash/logs':
-        if teacher != 'Заведующий':
-            return html.Div("Доступ запрещён. Только для заведующего.",
-                            style={'padding': '20px', 'textAlign': 'center'})
+        return html.Div("Доступ запрещён.",
+                        style={'padding': '20px', 'textAlign': 'center'})
         return digital_footprint_page()
     else:
         return home_page(teacher)
