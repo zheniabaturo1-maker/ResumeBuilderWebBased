@@ -16,7 +16,7 @@ from email.mime.multipart import MIMEMultipart
 from email.header import Header
 from flask import Flask, render_template_string, redirect, url_for, request, session, jsonify, send_file
 from flask_login import LoginManager, UserMixin, login_user, logout_user, login_required
-from dash import Dash, dcc, html, Input, Output, callback_context
+from dash import Dash, dcc, html, Input, Output, State, ALL, callback_context
 import plotly.express as px
 import plotly.graph_objects as go
 import dash_bootstrap_components as dbc
@@ -24,6 +24,8 @@ from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import accuracy_score
 import joblib
 import warnings
+import uuid
+import ast
 warnings.filterwarnings('ignore')
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -35,17 +37,17 @@ FILE_PATHS = {
     'ЭОК 15': os.path.join(BASE_DIR, "logs_Матем (ИГДГиГ)_20220830-1545.xlsx"),
     'ЭОК 16': os.path.join(BASE_DIR, "logs_ТВ(090301)_20220825-1546.xlsx"),
     'ЭОК 17': os.path.join(BASE_DIR, "logs_ТВМСкаф. информатики)_20220825-1547.xlsx"),
-    'ПрИнж_ТВМС': os.path.join(BASE_DIR, "logs_ПрИнж_ТВМС_1_20260922-0742.xlsx"),
-    'Мат_стат_ПМКАИБАС': os.path.join(BASE_DIR, "logs_Мат_стат_ПМКАИБАС_1_20260922-0738.xlsx"),
-    'РКИиП_ТВиМС': os.path.join(BASE_DIR, "logs_РКИиП_ТВиМС_1_20260922-0723.xlsx"),
-    'NN_бакалавриат': os.path.join(BASE_DIR, "logs_NN_бакалавриат_20260922-0730.xlsx"),
-    'Математический анализ (Часть 1)': os.path.join(BASE_DIR, "logs_Математический анализ (Часть 1)_20260922-1748.xlsx"),
-    'Математический анализ (Часть 2)': os.path.join(BASE_DIR, "logs_Математический анализ (Часть 2)_20260922-1750.xlsx"),
-    'Машинное обучение': os.path.join(BASE_DIR, "logs_Машинное обучение (Кустицкая Т.А.)_20260922-1818.xlsx"),
-    'АиГ': os.path.join(BASE_DIR, "logs_Алг_Геом_2_20260923-0944.xlsx"),
-    'МЛиТА': os.path.join(BASE_DIR, "logs_МЛиТА-26-ПИ_20260923-1414.xlsx"),
-    'Теоретическая механика': os.path.join(BASE_DIR, "logs_Теоретическая механика_20260923-1637.xlsx"),
-    'Численные методы': os.path.join(BASE_DIR, "logs_Численные методы (ЧМ)_20260923-1647.xlsx"),
+    'ПрИнж_ТВМС': os.path.join(BASE_DIR, "logs_ПрИнж_ТВМС_1_20260924-1203.xlsx"),
+    'Мат_стат_ПМКАИБАС': os.path.join(BASE_DIR, "logs_Мат_стат_ПМКАИБАС_1_20260924-1202.xlsx"),
+    'РКИиП_ТВиМС': os.path.join(BASE_DIR, "logs_РКИиП_ТВиМС_1_20260924-1201.xlsx"),
+    'NN_бакалавриат': os.path.join(BASE_DIR, "logs_NN_бакалавриат_20260924-1157.xlsx"),
+    'Математический анализ (Часть 1)': os.path.join(BASE_DIR, "logs_Математический анализ (Часть 1)_20260924-1204.xlsx"),
+    'Математический анализ (Часть 2)': os.path.join(BASE_DIR, "logs_Математический анализ (Часть 2)_20260924-1205.xlsx"),
+    'Машинное обучение': os.path.join(BASE_DIR, "logs_Машинное обучение (Кустицкая Т.А.)_20260924-1206.xlsx"),
+    'АиГ': os.path.join(BASE_DIR, "logs_Алг_Геом_2_20260924-1206.xlsx"),
+    'МЛиТА': os.path.join(BASE_DIR, "logs_МЛиТА-26-ПИ_20260924-1207.xlsx"),
+    'Теоретическая механика': os.path.join(BASE_DIR, "logs_Теоретическая механика_20260924-1208.xlsx"),
+    'Численные методы': os.path.join(BASE_DIR, "logs_Численные методы (ЧМ)_20260924-1209.xlsx"),
 }
 
 SPRING_COURSES_2021 = []
@@ -187,11 +189,14 @@ TEACHER_CREDENTIALS = {
     'Заведующий': 'headpass',
 }
 
-# Преподаватели, скрываемые в интерфейсе заведующего
 HIDDEN_TEACHERS = [
     'Преподаватель 1', 'Преподаватель 2', 'Преподаватель 3',
     'Преподаватель 4', 'Преподаватель 5', 'Преподаватель 6',
 ]
+
+# >>> ВАРИАНТ B (per-week): новый базис — 2 события в неделю
+FEEDBACK_DENSITY_BASE_PER_WEEK = 2.0
+FEEDBACK_DENSITY_BASE_WEEKLY = 2.0
 
 # ==================== НАСТРОЙКИ ОБРАТНОЙ СВЯЗИ ====================
 FEEDBACK_RECIPIENT = "baturoevgeni@yandex.ru"
@@ -203,24 +208,69 @@ SMTP_USE_SSL = True
 FEEDBACK_FILE = "feedback_messages.csv"
 FEEDBACK_LOCK = threading.Lock()
 
+# ==================== УВЕДОМЛЕНИЯ ОБ ИЗМЕНЕНИЯХ ====================
+NOTIFICATIONS_FILE = "notifications_store.json"
+NOTIFICATIONS_LOCK = threading.Lock()
+
+NOTIF_METRIC_LABELS = {
+    'total_students':       'Всего студентов',
+    'total_teacher_events': 'Всего событий преподавателя',
+    'total_student_events': 'Всего событий студентов',
+    'avg_teacher_weekly':   'Ср. активность преподавателя (событий/нед)',
+    'avg_students_weekly':  'Ср. активность студентов (событий/нед)',
+    'avg_session_length':   'Ср. длина сессии (мин)',
+    'feedback_count':       'События обратной связи',
+    'feedback_speed':       'Скорость отклика (ч)',
+    'course_updates_total': 'Всего обновлений курса',
+    'iopa_total':           'ИОПА (балл)',
+    'iopa_level':           'Уровень ИОПА',
+}
+NOTIF_COMPARE_KEYS = list(NOTIF_METRIC_LABELS.keys())
+
 # ==================== УНИВЕРСАЛЬНЫЙ ПАРСЕР ДАТ ====================
 def parse_time_column(series):
-    """
-    Универсальный парсер даты/времени из логов Moodle.
-
-    Работает как со старым форматом '18/09/26, 09:19' (без секунд),
-    так и с новым '18/09/26, 09:19:35' (с секундами),
-    а также с рядом других вариантов ('.', '-', четырёхзначный год и т.п.).
-
-    dayfirst=True — обязателен, чтобы 18/09/26 читалось как 18 сентября,
-    а не как 9-е число 18-го месяца.
-    """
     return pd.to_datetime(series, errors='coerce', dayfirst=True)
 
 
 # Загрузка данных логов
 courses = {}
 EXCLUDE_USERS = ['web', 'Система', '..."', ' ..."', 'в рамк..."', ' в рамк..."', ' ост..."', 'ост..."', ' для обучен..."', 'для обучен..."']
+
+# IP, которые исключаются из Excel-логов при загрузке
+BLOCKED_IPS_IN_LOGS = {'109.226.212.133'}
+
+
+def _normalize_ip_str(v):
+    """Приводит значение к каноничному IP: строка, без пробелов, без ::ffff:"""
+    if v is None:
+        return ''
+    try:
+        s = str(v).strip()
+    except Exception:
+        return ''
+    if s.startswith('::ffff:'):
+        s = s[7:]
+    return s
+
+
+def _filter_blocked_ips(df):
+    """Удаляет строки, где значение в колонке с 'ip' в названии входит в BLOCKED_IPS_IN_LOGS.
+    Если колонки с IP нет — возвращает df без изменений."""
+    if df is None or df.empty:
+        return df
+    ip_col = None
+    for col in df.columns:
+        if 'ip' in str(col).lower():
+            ip_col = col
+            break
+    if ip_col is None:
+        return df
+    mask = df[ip_col].apply(lambda v: _normalize_ip_str(v) in BLOCKED_IPS_IN_LOGS)
+    removed = int(mask.sum())
+    if removed:
+        print(f"  → Отфильтровано {removed} строк с заблокированными IP (колонка '{ip_col}')")
+    return df[~mask]
+
 
 for name, path in FILE_PATHS.items():
     try:
@@ -232,6 +282,9 @@ for name, path in FILE_PATHS.items():
         if 'Затронутый пользователь' in df.columns:
             df = df[~df['Затронутый пользователь'].isin(EXCLUDE_USERS)]
             df = df.dropna(subset=['Затронутый пользователь'])
+
+        df = _filter_blocked_ips(df)
+
         courses[name] = df
         print(f"Загружен {name}")
     except Exception as e:
@@ -267,6 +320,7 @@ def load_logs_from_file():
         except Exception as e:
             print(f"Ошибка загрузки логов: {e}")
 
+
 def log_action(user, action, details, error=False, ip=None, user_agent=None, source=None):
     if source is None:
         if user_agent and user_agent != 'N/A':
@@ -296,6 +350,7 @@ def log_action(user, action, details, error=False, ip=None, user_agent=None, sou
                 writer.writerow(new_entry)
         except Exception as e:
             print(f"Ошибка записи лога: {e}")
+
 
 def periodic_save():
     while True:
@@ -415,6 +470,182 @@ def feedback_page(user):
     </html>
     '''
 
+
+# ==================== ЛОГИКА УВЕДОМЛЕНИЙ ====================
+def load_notifications_store():
+    with NOTIFICATIONS_LOCK:
+        if not os.path.exists(NOTIFICATIONS_FILE):
+            return {}
+        try:
+            with open(NOTIFICATIONS_FILE, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except Exception as e:
+            print(f"Ошибка загрузки уведомлений: {e}")
+            return {}
+
+
+def save_notifications_store(store):
+    with NOTIFICATIONS_LOCK:
+        try:
+            with open(NOTIFICATIONS_FILE, 'w', encoding='utf-8') as f:
+                json.dump(store, f, ensure_ascii=False, indent=2)
+        except Exception as e:
+            print(f"Ошибка сохранения уведомлений: {e}")
+
+
+def _safe_calculate_teacher_signature(teacher_name):
+    """Считает отпечаток метрик по всем курсам преподавателя.
+    Возвращает dict {course: {metric: value}} или пустой dict."""
+    teacher_courses = [c for c, t in teacher_dict.items() if t == teacher_name]
+    if not teacher_courses:
+        return {}
+    signature = {}
+    update_events = ['Модуль курса обновлен', 'Курс обновлен',
+                     'Выполнение элемента курса обновлено',
+                     'Событие календаря обновлено', 'Grade item updated',
+                     'Question updated', 'Раздел курса обновлен',
+                     'Представленный ответ обновлен.',
+                     'Состояние представленного ответа было обновлено.',
+                     'Сообщение обновлено', 'Quiz attempt regraded']
+    for course in teacher_courses:
+        df = courses.get(course)
+        if df is None or df.empty:
+            continue
+        try:
+            df_c = df.copy()
+            df_c['Время'] = parse_time_column(df_c['Время'])
+            df_c = df_c.dropna(subset=['Время'])
+            actual_weeks = get_actual_weeks_count(df_c, course)
+            if actual_weeks < 1:
+                actual_weeks = 1
+            week_ranges = get_week_ranges_for_course(course)
+            actual_week_ranges = week_ranges[:actual_weeks]
+
+            df_teacher = df_c[df_c['Полное имя пользователя'] == teacher_name]
+            df_students = df_c[df_c['Полное имя пользователя'] != teacher_name]
+
+            total_students = int(df_students['Полное имя пользователя'].nunique())
+
+            weekly_counts = [len(df_teacher.query("@s <= Время <= @e"))
+                             for s, e in actual_week_ranges]
+            avg_teacher_weekly = round(float(np.mean(weekly_counts)) if weekly_counts else 0.0, 1)
+
+            weekly_students_counts = [len(df_students.query("@s <= Время <= @e"))
+                                      for s, e in actual_week_ranges]
+            avg_students_weekly = round(float(np.mean(weekly_students_counts)) if weekly_students_counts else 0.0, 1)
+
+            total_teacher_events = int(len(df_teacher))
+            total_student_events = int(len(df_students))
+
+            avg_sess_len, _, _ = calculate_session_length(df_c, teacher_name, course)
+            avg_sess_len = round(float(avg_sess_len or 0), 1)
+
+            fb_count = int(count_feedback_events(df_c, teacher_name))
+            fb_speed = calculate_feedback_speed(df_c, teacher_name)
+            fb_speed_r = round(float(fb_speed), 1) if fb_speed is not None else None
+
+            updates_total = int(len(df_teacher[df_teacher['Название события'].isin(update_events)]))
+
+            metrics = {
+                'weekly_activity': avg_teacher_weekly,
+                'session_length': avg_sess_len,
+                'course_updates': updates_total,
+                'feedback_speed': fb_speed,
+            }
+            ped = calculate_pedagogical_activity_level(
+                metrics, actual_weeks=actual_weeks, feedback_count=fb_count)
+
+            signature[course] = {
+                'total_students':       total_students,
+                'total_teacher_events': total_teacher_events,
+                'total_student_events': total_student_events,
+                'avg_teacher_weekly':   avg_teacher_weekly,
+                'avg_students_weekly':  avg_students_weekly,
+                'avg_session_length':   avg_sess_len,
+                'feedback_count':       fb_count,
+                'feedback_speed':       fb_speed_r,
+                'course_updates_total': updates_total,
+                'iopa_total':           int(ped['total_score']),
+                'iopa_level':           ped['level'],
+                'actual_weeks':         int(actual_weeks),
+            }
+        except Exception as e:
+            print(f"Ошибка отпечатка {teacher_name}/{course}: {e}")
+            continue
+    return signature
+
+
+def detect_teacher_changes():
+    """Сравнивает текущие отпечатки с сохранёнными; создаёт уведомления при расхождениях.
+    При первом запуске (нет сохранённого отпечатка) — только сохраняет базу, без уведомлений."""
+    store = load_notifications_store()
+    teachers = [t for t in TEACHER_CREDENTIALS.keys()
+                if t != 'Заведующий' and t not in HIDDEN_TEACHERS]
+    total_notifications = 0
+
+    for teacher in teachers:
+        current_sig = _safe_calculate_teacher_signature(teacher)
+        if not current_sig:
+            continue
+
+        entry = store.get(teacher, {'last_signature': {}, 'last_check': None, 'notifications': []})
+        old_sig = entry.get('last_signature') or {}
+        is_first_time = not old_sig
+
+        new_notifications = []
+        if not is_first_time:
+            for course, cur in current_sig.items():
+                old = old_sig.get(course)
+                if old is None:
+                    new_notifications.append({
+                        'id': str(uuid.uuid4()),
+                        'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                        'course': course,
+                        'changes': [{'field': 'course', 'label': 'Новый курс',
+                                     'old': '—', 'new': course}],
+                        'read': False
+                    })
+                    continue
+                changes = []
+                for key in NOTIF_COMPARE_KEYS:
+                    ov, nv = old.get(key), cur.get(key)
+                    if ov != nv:
+                        changes.append({
+                            'field': key,
+                            'label': NOTIF_METRIC_LABELS[key],
+                            'old': ov, 'new': nv
+                        })
+                if changes:
+                    new_notifications.append({
+                        'id': str(uuid.uuid4()),
+                        'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                        'course': course,
+                        'changes': changes,
+                        'read': False
+                    })
+
+        entry['last_signature'] = current_sig
+        entry['last_check'] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        if new_notifications:
+            existing = entry.get('notifications', [])
+            entry['notifications'] = (new_notifications + existing)[:100]
+            total_notifications += len(new_notifications)
+            print(f"[notif] {teacher}: +{len(new_notifications)} уведомл.")
+        store[teacher] = entry
+
+    save_notifications_store(store)
+    print(f"[notif] Проверка завершена. Новых уведомлений: {total_notifications}")
+    return total_notifications
+
+
+def _startup_notification_check():
+    time.sleep(5)  # дать серверу подняться
+    try:
+        detect_teacher_changes()
+    except Exception as e:
+        print(f"[notif] Ошибка startup-проверки: {e}")
+
+
 # ==================== ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ====================
 def get_week_ranges_for_course(course_name):
     if course_name in AUTUMN_COURSES_2026:
@@ -445,11 +676,6 @@ def get_week_ranges_for_course(course_name):
 
 
 def get_actual_weeks_count(df, selected_course):
-    """
-    Возвращает число недель, доступных для анализа.
-    Считаем неделю «доступной», если её начало уже наступило
-    (чтобы учитывать текущую незавершённую неделю).
-    """
     try:
         week_ranges = get_week_ranges_for_course(selected_course)
         current_date = datetime.now()
@@ -467,30 +693,43 @@ def get_actual_weeks_count(df, selected_course):
         return len(week_ranges)
 
 
+FEEDBACK_EVENTS_LIST = [
+    'Представленный ответ был оценен.', 'Пользователю поставлена оценка',
+    'Отзыв просмотрен', 'Оценки экспортированы в формат XLS',
+    'Таблица оценивания просмотрена', 'Форма оценивания просмотрена',
+    'Quiz attempt regraded', 'Grade item updated', 'Grade item created',
+    'Пользователь принял заявление о представлении работы.',
+    'Рассмотрена форма подтверждения представленных ответов',
+    'Страница состояния представленного ответа просмотрена'
+]
+
+
 def calculate_feedback_speed(df, teacher_name):
     try:
-        feedback_events = [
-            'Представленный ответ был оценен.', 'Пользователю поставлена оценка',
-            'Отзыв просмотрен', 'Оценки экспортированы в формат XLS',
-            'Таблица оценивания просмотрена', 'Форма оценивания просмотрена',
-            'Quiz attempt regraded', 'Grade item updated', 'Grade item created',
-            'Пользователь принял заявление о представлении работы.',
-            'Рассмотрена форма подтверждения представленных ответов',
-            'Страница состояния представленного ответа просмотрена'
-        ]
-        df_feedback = df[(df['Полное имя пользователя'] == teacher_name) & (df['Название события'].isin(feedback_events))].copy()
+        df_feedback = df[(df['Полное имя пользователя'] == teacher_name) & (df['Название события'].isin(FEEDBACK_EVENTS_LIST))].copy()
         if df_feedback.empty:
-            return 0
+            return None
         df_feedback['Время'] = parse_time_column(df_feedback['Время'])
         df_feedback = df_feedback.dropna(subset=['Время']).sort_values('Время')
         df_feedback['time_diff'] = df_feedback['Время'].diff()
         time_diffs = df_feedback['time_diff'][df_feedback['time_diff'] < pd.Timedelta(days=7)]
         if time_diffs.empty:
-            return 0
+            return None
         return time_diffs.mean().total_seconds() / 3600
     except Exception as e:
         ip, ua = get_request_client_info()
         log_action(teacher_name, "Ошибка", f"calculate_feedback_speed: {str(e)}", error=True, ip=ip, user_agent=ua)
+        return None
+
+
+def count_feedback_events(df, teacher_name):
+    try:
+        df_feedback = df[(df['Полное имя пользователя'] == teacher_name) &
+                         (df['Название события'].isin(FEEDBACK_EVENTS_LIST))]
+        return int(len(df_feedback))
+    except Exception as e:
+        ip, ua = get_request_client_info()
+        log_action(teacher_name, "Ошибка", f"count_feedback_events: {str(e)}", error=True, ip=ip, user_agent=ua)
         return 0
 
 
@@ -534,33 +773,63 @@ def calculate_session_length(df, teacher_name, selected_course, session_threshol
         return 0, {}, {}
 
 
-def calculate_pedagogical_activity_level(metrics):
+# >>> ВАРИАНТ B (per-week): плотность = (feedback_count / actual_weeks) / BASE_PER_WEEK
+def calculate_pedagogical_activity_level(metrics, actual_weeks=18, feedback_count=None):
     weights = {
         'weekly_activity': 0.25, 'session_length': 0.25,
-         'course_updates': 0.25, 'feedback_speed': 0.25
+        'course_updates': 0.25, 'feedback_speed': 0.25
     }
     pedagogical_thresholds = {
-        'weekly_activity': [(50,100),(30,75),(15,50),(5,25),(0,10)],
-        'session_length': [(45,100),(30,80),(20,60),(10,40),(0,20)],
-        'course_updates': [(10,100),(7,80),(5,60),(3,40),(0,20)],
-        'feedback_speed': [(0,100),(24,80),(48,60),(72,40),(96,20)]
+        'weekly_activity': [(50, 100), (30, 75), (15, 50), (5, 25), (1, 10)],
+        'session_length': [(45, 100), (30, 80), (20, 60), (10, 40), (1, 20)],
+        'course_updates': [(5, 100), (3, 80), (2, 60), (1, 40)],
+        'feedback_speed': [(0, 100), (24, 80), (48, 60), (72, 40), (96, 20)]
     }
     normalized_scores = {}
+    raw_values = {}
+    normalized_inputs = {}
+    density_info = {}
+
+    actual_weeks_safe = max(int(actual_weeks), 1) if actual_weeks else 1
+
     for metric, value in metrics.items():
-        if metric == 'course_updates':
-            value = value / 18 if value > 0 else 0
-        pedagogical_score = 0
+        raw_values[metric] = value
+
         if metric == 'feedback_speed':
+            if value is None or not feedback_count:
+                normalized_scores[metric] = 0
+                normalized_inputs[metric] = None
+                density_info[metric] = 0.0
+                continue
+            base_score = 0
             for threshold, score in pedagogical_thresholds[metric]:
                 if value <= threshold:
-                    pedagogical_score = score
+                    base_score = score
                     break
+            # >>> ВАРИАНТ B (per-week): считаем события в неделю
+            events_per_week = feedback_count / actual_weeks_safe
+            density = min(events_per_week / FEEDBACK_DENSITY_BASE_PER_WEEK, 1.0)
+            density_info[metric] = round(density, 3)
+            normalized_scores[metric] = base_score * density
+            normalized_inputs[metric] = value
+            continue
+
+        if metric == 'course_updates':
+            value_norm = value / actual_weeks_safe if value > 0 else 0
+            normalized_inputs[metric] = value_norm
+            value_for_check = value_norm
         else:
-            for threshold, score in pedagogical_thresholds[metric]:
-                if value >= threshold:
-                    pedagogical_score = score
-                    break
-        normalized_scores[metric] = pedagogical_score
+            normalized_inputs[metric] = value
+            value_for_check = value
+
+        score = 0
+        for threshold, sc in pedagogical_thresholds[metric]:
+            if value_for_check >= threshold:
+                score = sc
+                break
+        normalized_scores[metric] = score
+        density_info[metric] = 1.0
+
     total_score = sum(normalized_scores[m] * weights[m] for m in weights)
     if total_score >= 85:
         level = "Очень высокий"; color = "#28a745"; description = "Исключительная педагогическая активность"
@@ -572,7 +841,144 @@ def calculate_pedagogical_activity_level(metrics):
         level = "Низкий"; color = "#fd7e14"; description = "Активность требует улучшения"
     else:
         level = "Очень низкий"; color = "#dc3545"; description = "Необходимо повышение активности"
-    return {'total_score': round(total_score), 'level': level, 'color': color, 'description': description, 'detailed_scores': normalized_scores}
+    return {
+        'total_score': round(total_score),
+        'level': level,
+        'color': color,
+        'description': description,
+        'detailed_scores': normalized_scores,
+        'raw_values': raw_values,
+        'normalized_inputs': normalized_inputs,
+        'weights': weights,
+        'density_info': density_info,
+        'actual_weeks': actual_weeks_safe,
+        'feedback_count': feedback_count
+    }
+
+
+# >>> ВАРИАНТ B (per-week): понедельный — базис тоже 2 события в неделю
+def calculate_weekly_pedagogical_activity(df, teacher_name, selected_course):
+    try:
+        week_ranges = get_week_ranges_for_course(selected_course)
+        actual_weeks = get_actual_weeks_count(df, selected_course)
+        actual_week_ranges = week_ranges[:actual_weeks]
+
+        df_teacher = df[df['Полное имя пользователя'] == teacher_name].copy()
+        if df_teacher.empty:
+            return pd.DataFrame()
+        df_teacher['Время'] = parse_time_column(df_teacher['Время'])
+        df_teacher = df_teacher.dropna(subset=['Время'])
+
+        update_events = ['Модуль курса обновлен', 'Курс обновлен',
+                         'Выполнение элемента курса обновлено',
+                         'Событие календаря обновлено', 'Grade item updated',
+                         'Question updated', 'Раздел курса обновлен',
+                         'Представленный ответ обновлен.',
+                         'Состояние представленного ответа было обновлено.',
+                         'Сообщение обновлено', 'Quiz attempt regraded']
+
+        rows = []
+        for week_num, (start_date, end_date) in enumerate(actual_week_ranges, 1):
+            week_df = df_teacher.query("@start_date <= Время <= @end_date")
+
+            weekly_activity = len(week_df)
+
+            week_sorted = week_df.sort_values('Время').copy()
+            session_length = 0.0
+            if len(week_sorted) > 1:
+                week_sorted['time_diff'] = week_sorted['Время'].diff()
+                week_sorted['new_session'] = week_sorted['time_diff'] > pd.Timedelta(minutes=30)
+                week_sorted['session_id'] = week_sorted['new_session'].cumsum()
+                durations = []
+                for sid in week_sorted['session_id'].unique():
+                    sd = week_sorted[week_sorted['session_id'] == sid]
+                    if len(sd) > 1:
+                        durations.append((sd['Время'].max() - sd['Время'].min()).total_seconds() / 60)
+                session_length = float(np.mean(durations)) if durations else 0.0
+
+            course_updates = int(len(week_df[week_df['Название события'].isin(update_events)]))
+
+            fb = week_df[week_df['Название события'].isin(FEEDBACK_EVENTS_LIST)].sort_values('Время')
+            fb_count_week = len(fb)
+            has_feedback = fb_count_week > 1
+            feedback_speed = 0.0
+            feedback_density = 0.0
+            if has_feedback:
+                diffs = fb['Время'].diff()
+                diffs = diffs[diffs < pd.Timedelta(days=7)]
+                if not diffs.empty:
+                    feedback_speed = diffs.mean().total_seconds() / 3600
+                    feedback_density = min(fb_count_week / FEEDBACK_DENSITY_BASE_WEEKLY, 1.0)
+                else:
+                    has_feedback = False
+
+            weekly_thresholds = {
+                'weekly_activity': [(50, 100), (30, 75), (15, 50), (5, 25), (1, 10)],
+                'session_length': [(45, 100), (30, 80), (20, 60), (10, 40), (1, 20)],
+                'course_updates': [(5, 100), (3, 80), (2, 60), (1, 40)],
+                'feedback_speed': [(0, 100), (24, 80), (48, 60), (72, 40), (96, 20)]
+            }
+            weights = {'weekly_activity': 0.25, 'session_length': 0.25,
+                       'course_updates': 0.25, 'feedback_speed': 0.25}
+            metrics_week = {
+                'weekly_activity': weekly_activity,
+                'session_length': session_length,
+                'course_updates': course_updates,
+                'feedback_speed': feedback_speed
+            }
+            scores = {}
+            for metric, value in metrics_week.items():
+                if metric == 'feedback_speed':
+                    if not has_feedback:
+                        scores[metric] = 0
+                        continue
+                    base_score = 0
+                    for thr, sc in weekly_thresholds[metric]:
+                        if value <= thr:
+                            base_score = sc
+                            break
+                    scores[metric] = base_score * feedback_density
+                    continue
+                score = 0
+                for thr, sc in weekly_thresholds[metric]:
+                    if value >= thr:
+                        score = sc
+                        break
+                scores[metric] = score
+            total_score = sum(scores[m] * weights[m] for m in weights)
+
+            if total_score >= 85:
+                level, color = "Очень высокий", "#28a745"
+            elif total_score >= 70:
+                level, color = "Высокий", "#17a2b8"
+            elif total_score >= 55:
+                level, color = "Средний", "#ffc107"
+            elif total_score >= 40:
+                level, color = "Низкий", "#fd7e14"
+            else:
+                level, color = "Очень низкий", "#dc3545"
+
+            rows.append({
+                'Неделя': week_num,
+                'total_score': round(total_score, 1),
+                'level': level,
+                'color': color,
+                'weekly_activity': weekly_activity,
+                'session_length': round(session_length, 1),
+                'course_updates': course_updates,
+                'feedback_speed': round(feedback_speed, 1) if has_feedback else 0,
+                'feedback_speed_display': (
+                    f"{feedback_speed:.1f} (коэф. {feedback_density:.2f}, n={fb_count_week})"
+                    if has_feedback else "—"
+                )
+            })
+
+        return pd.DataFrame(rows)
+    except Exception as e:
+        ip, ua = get_request_client_info()
+        log_action(teacher_name, "Ошибка", f"calculate_weekly_pedagogical_activity: {str(e)}",
+                   error=True, ip=ip, user_agent=ua)
+        return pd.DataFrame()
 
 
 def create_graph_with_tooltip(graph_id, figure=None, tooltip_text=""):
@@ -585,6 +991,112 @@ def create_graph_with_tooltip(graph_id, figure=None, tooltip_text=""):
                    style={'margin-right': '10px', 'cursor': 'pointer'}),
             dcc.Graph(id=graph_id, figure=figure)
         ])
+    ])
+
+
+# ==================== UI КОМПОНЕНТ КОЛОКОЛЬЧИКА ====================
+def notifications_bell_component(current_teacher):
+    return html.Div([
+        dcc.Store(id='notif-user', data=current_teacher),
+        dcc.Store(id='notif-panel-open', data=False),
+        dcc.Store(id='notif-refresh', data=0),
+        html.Button([
+            html.I(className="fas fa-bell", style={'color': '#495057'}),
+            html.Span(id='notif-badge', children="", style={'display': 'none'})
+        ], id='notif-bell-btn', n_clicks=0, title="Уведомления",
+           style={'position': 'relative', 'background': 'white',
+                  'border': '1px solid #dee2e6', 'borderRadius': '5px',
+                  'padding': '8px 12px', 'cursor': 'pointer'}),
+        html.Div(id='notif-panel', style={'display': 'none'})
+    ], style={'position': 'relative', 'display': 'inline-block', 'marginRight': '10px'})
+
+
+def _format_notif_time(ts_str):
+    try:
+        return datetime.strptime(ts_str, "%Y-%m-%d %H:%M:%S").strftime("%d.%m.%Y %H:%M")
+    except Exception:
+        return ts_str
+
+
+def _render_notifications_panel(teacher_name):
+    store = load_notifications_store()
+    notifications = store.get(teacher_name, {}).get('notifications', [])
+
+    if not notifications:
+        return html.Div([
+            html.Div("Уведомлений пока нет.",
+                     style={'color': '#6c757d', 'textAlign': 'center', 'padding': '20px'})
+        ])
+
+    unread = sum(1 for n in notifications if not n.get('read', False))
+    read_count = len(notifications) - unread
+
+    items = []
+    for n in notifications:
+        is_read = n.get('read', False)
+        notif_id = str(n.get('id', ''))
+        changes_html = [
+            html.Div([
+                html.Span(f"• {ch.get('label')}: ", style={'fontWeight': '500'}),
+                html.Span(str(ch.get('old')), style={'color': '#6c757d'}),
+                html.Span(" → ", style={'color': '#007bff', 'fontWeight': 'bold'}),
+                html.Span(str(ch.get('new')), style={'color': '#28a745', 'fontWeight': 'bold'})
+            ], style={'fontSize': '0.85rem', 'marginTop': '2px'})
+            for ch in n.get('changes', [])
+        ]
+        items.append(html.Div([
+            html.Button(
+                "×",
+                id={'type': 'notif-delete', 'index': notif_id},
+                n_clicks=0,
+                title="Удалить уведомление",
+                style={
+                    'position': 'absolute', 'top': '2px', 'right': '4px',
+                    'background': 'transparent', 'border': 'none',
+                    'color': '#adb5bd', 'fontSize': '1.1rem',
+                    'lineHeight': '1', 'cursor': 'pointer',
+                    'padding': '2px 6px', 'fontWeight': 'bold'
+                }
+            ),
+            html.Div([
+                html.Span(_format_notif_time(n.get('timestamp', '')),
+                          style={'color': '#6c757d', 'fontSize': '0.75rem'}),
+                html.Span(f" · {n.get('course', '')}",
+                          style={'color': '#007bff', 'fontSize': '0.85rem', 'fontWeight': 'bold'})
+            ], style={'marginBottom': '4px', 'paddingRight': '22px'}),
+            html.Div(changes_html)
+        ], style={
+            'position': 'relative',
+            'background': '#fff9e6' if not is_read else '#fff',
+            'border': '1px solid #e9ecef',
+            'borderLeft': ('4px solid #007bff') if not is_read else '4px solid #e9ecef',
+            'borderRadius': '5px', 'padding': '10px', 'marginBottom': '8px'
+        }))
+
+    header_buttons = [
+        html.Button("Отметить всё прочитанным",
+                    id={'type': 'notif-action', 'action': 'mark-all-read'},
+                    n_clicks=0, className='btn btn-sm btn-outline-primary',
+                    disabled=(unread == 0),
+                    style={'fontSize': '0.72rem', 'padding': '3px 8px',
+                           'marginRight': '6px'})
+    ]
+    if read_count > 0:
+        header_buttons.append(
+            html.Button("Очистить историю",
+                        id={'type': 'notif-action', 'action': 'clear-history'},
+                        n_clicks=0, className='btn btn-sm btn-outline-danger',
+                        title="Удалить все прочитанные уведомления",
+                        style={'fontSize': '0.72rem', 'padding': '3px 8px'})
+        )
+
+    return html.Div([
+        html.Div([
+            html.Strong("Уведомления", style={'fontSize': '1rem'}),
+            html.Div(header_buttons, style={'float': 'right'})
+        ], style={'marginBottom': '10px', 'overflow': 'hidden'}),
+        html.Hr(style={'margin': '6px 0'}),
+        html.Div(items, style={'maxHeight': '400px', 'overflowY': 'auto'})
     ])
 
 
@@ -610,9 +1122,11 @@ def load_user(user_id):
     return None
 
 
-app = Dash(__name__, server=server, external_stylesheets=[dbc.themes.BOOTSTRAP,
-                                                          'https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css'],
-           routes_pathname_prefix='/dash/')
+app = Dash(__name__, server=server,
+           external_stylesheets=[dbc.themes.BOOTSTRAP,
+                                 'https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css'],
+           routes_pathname_prefix='/dash/',
+           suppress_callback_exceptions=True)
 
 # ==================== ГЛОБАЛЬНЫЕ ПЕРЕМЕННЫЕ ДЛЯ НЕДЕЛЬНЫХ МОДЕЛЕЙ ====================
 weekly_models = {}
@@ -843,9 +1357,7 @@ def download_predictions(course_name, week):
 
 # ==================== LAYOUTS ====================
 def home_page(current_teacher):
-    semesters = ['Осенний',
-                 #'Весенний'
-                 ]
+    semesters = ['Осенний']
     teachers_list = [t for t in TEACHER_CREDENTIALS.keys()
                      if t != 'Заведующий' and t not in HIDDEN_TEACHERS]
     admin_panel = html.Div()
@@ -882,6 +1394,7 @@ def home_page(current_teacher):
             html.H1("Активность преподавателя и студентов в электронной среде",
                     style={'textAlign': 'center', 'margin': '0 auto'}),
             html.Div([
+                notifications_bell_component(current_teacher),
                 html.Span(f"Вы вошли как {current_teacher}", style={'margin-right': '15px'}),
                 html.A("Выйти", href="/logout",
                        style={'color': 'white', 'backgroundColor': '#dc3545', 'padding': '8px 12px',
@@ -910,7 +1423,7 @@ def home_page(current_teacher):
                 html.Label("Выберите семестр:", style={'font-weight': 'bold', 'margin-top': '10px'}),
                 dcc.Dropdown(id='semester-dropdown', options=[{'label': s, 'value': s} for s in semesters],
                              value=semesters[0] if semesters else '', clearable=False),
-            ], style={'display': 'none'}),  # скрываем выбор семестра
+            ], style={'display': 'none'}),
             html.Label("Выберите курс:", style={'font-weight': 'bold', 'margin-top': '10px'}),
             dcc.Dropdown(id='course-dropdown', options=[], value=None, clearable=False),
         ], style={'margin-bottom': '20px'}),
@@ -922,6 +1435,7 @@ def home_page(current_teacher):
         dcc.Store(id='statist-avg-session-length-store'),
         dcc.Store(id='statist-weekly-sessions-store'),
         dcc.Store(id='statist-feedback-speed-store'),
+        dcc.Store(id='statist-feedback-count-store'),
         dcc.Store(id='statist-correlation-text'),
         html.Div(style={'margin-bottom': '20px'}, children=[
             html.H4("Статистика активности преподавателя в электронной среде:"),
@@ -954,22 +1468,36 @@ def home_page(current_teacher):
                     html.H3(id='main-statist-feedback-speed', style={'color': '#20c997', 'text-align': 'center'})]),
                         width=3),
                 dbc.Col(html.Div(style={'background': '#f8f9fa', 'padding': '15px', 'border-radius': '5px'}, children=[
+                    html.H5("Всего действий обратной связи", style={'color': '#6c757d', 'text-align': 'center'}),
+                    html.H3(id='main-statist-feedback-count', style={'color': '#007bff', 'text-align': 'center'})]),
+                        width=3),
+                dbc.Col(html.Div(style={'background': '#f8f9fa', 'padding': '15px', 'border-radius': '5px'}, children=[
                     html.H5("Зависимость активности", style={'color': '#6c757d', 'text-align': 'center'}),
                     html.H6(id='main-statist-correlation-text',
-                            style={'color': '#007bff', 'text-align': 'center', 'margin-top': '5px'})]), width=6,
+                            style={'color': '#007bff', 'text-align': 'center', 'margin-top': '5px'})]), width=3,
                         style={'display': 'none'}),
             ], className="g-2"),
         ]),
         html.Div(style={'margin-bottom': '20px'}, children=[
-            html.H4("Интегрированная оценка педагогической активности:", style={'text-align': 'center'}),
+            html.H4("Интегрированная оценка педагогической активности за семестр:",
+                    style={'text-align': 'center'}),
             dbc.Row([
                 dbc.Col(html.Div(
-                    style={'background': '#f8f9fa', 'padding': '20px', 'border-radius': '10px', 'text-align': 'center',
+                    style={'background': '#f8f9fa', 'padding': '20px', 'border-radius': '10px',
                            'border': '2px solid #dee2e6'},
-                    children=[html.H5("Общий уровень", style={'color': '#6c757d', 'margin-bottom': '15px'}),
+                    children=[html.H5("Общий уровень", style={'color': '#6c757d', 'margin-bottom': '15px',
+                                                              'text-align': 'center'}),
                               html.Div(id='pedagogical-activity-level',
-                                       style={'fontSize': '24px', 'fontWeight': 'bold', 'margin-bottom': '10px'}),
-                              html.Div(id='pedagogical-activity-description')]), width=8, style={'margin': '0 auto'})
+                                       style={'fontSize': '24px', 'fontWeight': 'bold', 'margin-bottom': '10px',
+                                              'text-align': 'center'}),
+                              html.Div(id='pedagogical-activity-description')]),
+                    width=10, style={'margin': '0 auto'})
+            ]),
+            html.Div(id='iopa-weekly-container', style={'display': 'none'}, children=[
+                html.Hr(),
+                html.H5("Понедельная динамика ИОПА", style={'text-align': 'center', 'margin-top': '10px'}),
+                dcc.Graph(id='iopa-weekly-graph',
+                          figure=go.Figure().update_layout(title="Нет данных"))
             ]),
         ]),
         html.Div(style={'display': 'flex', 'flex-wrap': 'wrap', 'gap': '20px'}, children=[
@@ -1000,9 +1528,7 @@ def home_page(current_teacher):
 
 
 def teacher_page(current_teacher):
-    semesters = ['Осенний',
-                 #'Весенний'
-                 ]
+    semesters = ['Осенний']
     teachers_list = [t for t in TEACHER_CREDENTIALS.keys()
                      if t != 'Заведующий' and t not in HIDDEN_TEACHERS]
     empty_fig = go.Figure().update_layout(title="Загрузка данных...", xaxis=dict(visible=False),
@@ -1012,6 +1538,7 @@ def teacher_page(current_teacher):
                         'margin-bottom': '20px'}, children=[
             html.H1("Страница преподавателя", style={'textAlign': 'center', 'margin': '0 auto'}),
             html.Div([
+                notifications_bell_component(current_teacher),
                 html.Span(f"Вы вошли как {current_teacher}", style={'margin-right': '15px'}),
                 html.A("Выйти", href="/logout",
                        style={'color': 'white', 'backgroundColor': '#dc3545', 'padding': '8px 12px',
@@ -1048,7 +1575,7 @@ def teacher_page(current_teacher):
                 html.Label("Выберите семестр:", style={'font-weight': 'bold', 'margin-top': '10px'}),
                 dcc.Dropdown(id='semester-dropdown-teacher', options=[{'label': s, 'value': s} for s in semesters],
                              value=semesters[0] if semesters else '', clearable=False, style={'margin-bottom': '20px'})
-            ], style={'display': 'none'}),  # скрываем выбор семестра
+            ], style={'display': 'none'}),
             html.Div(style={'margin-bottom': '20px'}, children=[
                 html.H4("Статистика активности преподавателя в электронной среде:"),
                 dbc.Row([
@@ -1220,6 +1747,7 @@ def set_default_week(selected_course):
     Output('main-statist-avg-session-length', 'children'),
     Output('main-statist-total-sessions', 'children'),
     Output('main-statist-feedback-speed', 'children'),
+    Output('main-statist-feedback-count', 'children'),
     Output('main-statist-correlation-text', 'children'),
     Input('course-dropdown', 'value'),
     Input('statist-unique-students-count-store', 'data'),
@@ -1228,20 +1756,25 @@ def set_default_week(selected_course):
     Input('statist-avg-session-length-store', 'data'),
     Input('statist-weekly-sessions-store', 'data'),
     Input('statist-feedback-speed-store', 'data'),
+    Input('statist-feedback-count-store', 'data'),
     Input('statist-correlation-text', 'data'),
 )
 def update_main_stats(selected_course, total_students, avg_teacher_weekly,
-                      avg_students_weekly, avg_session_length, weekly_sessions_data, feedback_speed, correlation_text):
+                      avg_students_weekly, avg_session_length, weekly_sessions_data,
+                      feedback_speed, feedback_count, correlation_text):
     if not selected_course:
-        return 0, 0, 0, 0, 0, 0, 0
+        return 0, 0, 0, 0, 0, 0, 0, 0
     total_sessions = sum(weekly_sessions_data.values()) if weekly_sessions_data else 0
+    feedback_display = f"{feedback_speed:.1f} ч" if feedback_speed is not None else "—"
+    feedback_count_display = feedback_count if feedback_count is not None else 0
     return (
         total_students,
         f"{avg_teacher_weekly:.1f}",
         f"{avg_students_weekly:.1f}",
         f"{avg_session_length:.1f}",
         f"{total_sessions}",
-        f"{feedback_speed:.1f} ч",
+        feedback_display,
+        feedback_count_display,
         f"{correlation_text}",
     )
 
@@ -1261,6 +1794,7 @@ def update_main_stats(selected_course, total_students, avg_teacher_weekly,
      Output('statist-avg-session-length-store', 'data'),
      Output('statist-weekly-sessions-store', 'data'),
      Output('statist-feedback-speed-store', 'data'),
+     Output('statist-feedback-count-store', 'data'),
      Output('statist-correlation-text', 'data'),
      Output('pedagogical-activity-level', 'children'),
      Output('pedagogical-activity-description', 'children')],
@@ -1272,7 +1806,7 @@ def update_main_graphs(selected_course, selected_week, teacher_name, current_use
     try:
         if not teacher_name or not selected_course or selected_course not in courses:
             empty = go.Figure().update_layout(title="Нет данных для отображения")
-            return [empty] * 13 + [0] * 7 + ["", "", ""]
+            return [empty] * 13 + [0] * 8 + ["", ""]
         log_action(current_user, "Просмотр курса",
                    f"Преподаватель: {teacher_name}, Курс: {selected_course}, неделя: {selected_week}", ip=ip,
                    user_agent=ua)
@@ -1482,7 +2016,7 @@ def update_main_graphs(selected_course, selected_week, teacher_name, current_use
                          'Раздел курса обновлен', 'Представленный ответ обновлен.',
                          'Состояние представленного ответа было обновлено.', 'Сообщение обновлено',
                          'Quiz attempt regraded']
-        updates = df[df['Название события'].isin(update_events)]
+        updates = df_teacher[df_teacher['Название события'].isin(update_events)]
         weekly_updates = []
         for i, (s, e) in enumerate(actual_week_ranges, 1):
             cnt = len(updates.query("@s <= Время <= @e"))
@@ -1524,25 +2058,195 @@ def update_main_graphs(selected_course, selected_week, teacher_name, current_use
         else:
             corr = 0
             corr_text = "Недостаточно данных"
+
+        feedback_count = count_feedback_events(df, teacher_name)
+
         metrics = {
             'weekly_activity': avg_teacher,
             'session_length': avg_sess_len,
             'course_updates': total_updates,
             'feedback_speed': calculate_feedback_speed(df, teacher_name)
         }
-        ped = calculate_pedagogical_activity_level(metrics)
-        ped_level = html.Div([html.H4("Уровень педагогической активности:", style={'margin-bottom': '10px'}),
-                              dbc.Badge(ped['level'], color=ped['color'],
-                                        style={'fontSize': '20px', 'padding': '10px'})])
-        ped_desc = html.Div([html.P(ped['description'], style={'fontStyle': 'italic', 'margin-top': '10px'})])
+        ped = calculate_pedagogical_activity_level(metrics, actual_weeks=actual_weeks, feedback_count=feedback_count)
+
+        ped_level = html.Div([html.H4("Уровень педагогической активности:", style={'margin-bottom': '10px',
+                                                                                     'text-align': 'center'}),
+                              html.Div(dbc.Badge(ped['level'], color=ped['color'],
+                                                 style={'fontSize': '20px', 'padding': '10px'}),
+                                       style={'text-align': 'center'})])
+
+        metric_labels = {
+            'weekly_activity': 'Ср. активность (событий/нед)',
+            'session_length': 'Ср. длина сессии (мин)',
+            'course_updates': f'Обновления (ср./нед, всего {total_updates})',
+            'feedback_speed': 'Скорость отклика (ч)'
+        }
+        rows = []
+        for m in ['weekly_activity', 'session_length', 'course_updates', 'feedback_speed']:
+            weight = ped['weights'][m]
+            raw = ped['raw_values'].get(m)
+            norm = ped['normalized_inputs'].get(m)
+            score = ped['detailed_scores'].get(m, 0)
+            contribution = score * weight
+
+            if m == 'feedback_speed':
+                if raw is None:
+                    raw_display = "— (нет событий)"
+                else:
+                    dens = ped['density_info'].get(m, 0)
+                    epw = feedback_count / max(actual_weeks, 1) if feedback_count else 0
+                    raw_display = f"{raw:.2f} ч × коэф. {dens:.2f} ({feedback_count} соб. / {actual_weeks} нед = {epw:.2f}/нед)"
+            elif m == 'course_updates':
+                if raw is None or raw == 0:
+                    raw_display = f"0 (÷{actual_weeks} нед = 0.00)"
+                else:
+                    raw_display = f"{raw} (÷{actual_weeks} нед = {norm:.2f})"
+            elif m == 'session_length':
+                raw_display = f"{raw:.1f}" if raw is not None else "—"
+            else:
+                raw_display = f"{raw:.2f}" if isinstance(raw, float) else (str(raw) if raw is not None else "—")
+
+            rows.append(html.Tr([
+                html.Td(metric_labels[m]),
+                html.Td(raw_display),
+                html.Td(f"{score:.1f}" if isinstance(score, float) else f"{score}"),
+                html.Td(f"{contribution:.1f}")
+            ]))
+
+        breakdown_table = dbc.Table([
+            html.Thead(html.Tr([
+                html.Th("Метрика"),
+                html.Th("Значение"),
+                html.Th("Очки (0–100)"),
+                html.Th("Вклад (×0.25)")
+            ])),
+            html.Tbody(rows + [html.Tr([
+                html.Td(html.Strong("Итого")),
+                html.Td(""),
+                html.Td(""),
+                html.Td(html.Strong(f"{ped['total_score']}", style={'font-size': '1.1rem'}))
+            ], style={'background': '#f0f8ff'})])
+        ], bordered=True, hover=True, size='sm', responsive=True,
+           style={'fontSize': '0.85rem', 'textAlign': 'left', 'marginTop': '10px'})
+
+        ped_desc = html.Div([
+            html.P(ped['description'], style={'fontStyle': 'italic', 'marginTop': '10px',
+                                              'textAlign': 'center'}),
+            html.Details([
+                html.Summary(
+                    "Показать разбивку по метрикам",
+                    style={
+                        'cursor': 'pointer',
+                        'color': '#007bff',
+                        'marginTop': '12px',
+                        'marginBottom': '4px',
+                        'textAlign': 'center',
+                        'fontWeight': '500',
+                        'userSelect': 'none',
+                        'listStyle': 'none',
+                        'outline': 'none'
+                    }
+                ),
+                html.Div([
+                    breakdown_table,
+                    html.Small(
+                        "Итоговый балл = сумма вкладов (очки × вес 0.25). "
+                        "Для «Обновлений» очки считаются по среднему числу обновлений в неделю "
+                        f"(всего / {actual_weeks} нед). "
+                        "Для «Скорости отклика» очки умножаются на коэффициент плотности "
+                        f"min((событий в неделю) / {FEEDBACK_DENSITY_BASE_PER_WEEK:g}, 1). "
+                        "Уровни: «Очень низкий» < 40 ≤ «Низкий» < 55 ≤ «Средний» < 70 ≤ «Высокий» < 85 ≤ «Очень высокий».",
+                        style={'display': 'block', 'color': '#6c757d', 'marginTop': '8px'})
+                ], style={'marginTop': '10px'})
+            ], open=False, style={'marginTop': '4px'})
+        ])
+
         return (activity_fig, weekly_activity_fig, student_activity_fig, uniq_fig, res_fig, forum_fig,
                 sess_fig, comp_fig, ratio_fig, compare_fig, pie_fig, hour_fig, updates_fig,
                 total_unique, avg_teacher, avg_students, avg_sess_len, weekly_sessions, metrics['feedback_speed'],
+                feedback_count,
                 corr_text, ped_level, ped_desc)
     except Exception as e:
         log_action(current_user, "Ошибка в графиках", f"{str(e)}", error=True, ip=ip, user_agent=ua)
         empty = go.Figure().update_layout(title="Ошибка загрузки данных")
-        return [empty] * 13 + [0] * 7 + ["", "", ""]
+        return [empty] * 13 + [0] * 8 + ["", ""]
+
+
+# Callback понедельного графика ИОПА (только для заведующего)
+@app.callback(
+    Output('iopa-weekly-container', 'style'),
+    Output('iopa-weekly-graph', 'figure'),
+    Input('course-dropdown', 'value'),
+    Input('selected-teacher', 'data'),
+    Input('current-teacher', 'data'),
+    prevent_initial_call=True
+)
+def update_iopa_weekly_graph(selected_course, teacher_name, current_user):
+    if current_user != 'Заведующий':
+        return {'display': 'none'}, go.Figure()
+
+    if not selected_course or not teacher_name or selected_course not in courses:
+        return {'display': 'block'}, go.Figure().update_layout(
+            title="Нет данных для отображения ИОПА",
+            xaxis=dict(visible=False), yaxis=dict(visible=False))
+
+    df = courses[selected_course].copy()
+    if df.empty:
+        return {'display': 'block'}, go.Figure().update_layout(
+            title="Нет данных по курсу",
+            xaxis=dict(visible=False), yaxis=dict(visible=False))
+
+    df_weekly = calculate_weekly_pedagogical_activity(df, teacher_name, selected_course)
+    if df_weekly.empty:
+        return {'display': 'block'}, go.Figure().update_layout(
+            title="Недостаточно данных для расчёта ИОПА по неделям",
+            xaxis=dict(visible=False), yaxis=dict(visible=False))
+
+    ip, ua = get_request_client_info()
+    log_action(current_user, "Просмотр графика ИОПА по неделям",
+               f"Преподаватель: {teacher_name}, Курс: {selected_course}", ip=ip, user_agent=ua)
+
+    fig = go.Figure()
+
+    fig.add_hrect(y0=0,  y1=40,  fillcolor="#dc3545", opacity=0.08, line_width=0)
+    fig.add_hrect(y0=40, y1=55,  fillcolor="#fd7e14", opacity=0.08, line_width=0)
+    fig.add_hrect(y0=55, y1=70,  fillcolor="#ffc107", opacity=0.08, line_width=0)
+    fig.add_hrect(y0=70, y1=85,  fillcolor="#17a2b8", opacity=0.08, line_width=0)
+    fig.add_hrect(y0=85, y1=100, fillcolor="#28a745", opacity=0.08, line_width=0)
+
+    for y in (40, 55, 70, 85):
+        fig.add_hline(y=y, line_dash="dot", line_color="#999", line_width=1)
+
+    fig.add_trace(go.Scatter(
+        x=df_weekly['Неделя'],
+        y=df_weekly['total_score'],
+        mode='lines+markers',
+        name='ИОПА',
+        line=dict(color='#007bff', width=3),
+        marker=dict(size=10, color='#007bff'),
+        customdata=df_weekly[['level', 'weekly_activity', 'session_length',
+                              'course_updates', 'feedback_speed_display']].values,
+        hovertemplate=(
+            "Неделя %{x}<br>"
+            "ИОПА: %{y}<br>"
+            "Уровень: %{customdata[0]}<br>"
+            "Активность (событий): %{customdata[1]}<br>"
+            "Длина сессии (мин): %{customdata[2]}<br>"
+            "Обновлений: %{customdata[3]}<br>"
+            "Скорость отклика (ч): %{customdata[4]}<extra></extra>"
+        )
+    ))
+
+    fig.update_layout(
+        title=f'Понедельная динамика ИОПА — {teacher_name} ({selected_course})',
+        xaxis_title='Неделя семестра',
+        yaxis_title='ИОПА (0–100)',
+        yaxis=dict(range=[0, 100]),
+        xaxis=dict(tickmode='linear', dtick=1),
+        **GRAPH_STYLE
+    )
+
+    return {'display': 'block'}, fig
 
 
 # ==================== CALLBACKS ДЛЯ СТРАНИЦЫ ПРЕПОДАВАТЕЛЯ ====================
@@ -2255,6 +2959,125 @@ def update_course_predictions(course_name, teacher_name, current_user):
         return html.Div(f"Ошибка: {str(e)}", style={'color': 'red'})
 
 
+# ==================== CALLBACK'И УВЕДОМЛЕНИЙ ====================
+@app.callback(
+    Output('notif-panel-open', 'data'),
+    Input('notif-bell-btn', 'n_clicks'),
+    Input('notif-panel-open', 'data'),
+    prevent_initial_call=True
+)
+def toggle_notif_panel(n_clicks, is_open):
+    return not is_open
+
+
+@app.callback(
+    Output('notif-panel', 'style'),
+    Output('notif-panel', 'children'),
+    Input('notif-panel-open', 'data'),
+    Input('notif-user', 'data'),
+    Input('notif-refresh', 'data'),
+)
+def render_notif_panel(is_open, teacher_name, refresh_counter):
+    base_style = {
+        'position': 'absolute', 'top': 'calc(100% + 6px)', 'right': '0',
+        'width': '420px', 'maxHeight': '520px', 'overflowY': 'auto',
+        'background': 'white', 'border': '1px solid #dee2e6',
+        'borderRadius': '8px', 'boxShadow': '0 4px 14px rgba(0,0,0,0.15)',
+        'padding': '14px', 'zIndex': 1050
+    }
+    if not is_open or not teacher_name:
+        base_style['display'] = 'none'
+        return base_style, html.Div()
+    base_style['display'] = 'block'
+    return base_style, _render_notifications_panel(teacher_name)
+
+
+@app.callback(
+    Output('notif-badge', 'children'),
+    Output('notif-badge', 'style'),
+    Input('notif-user', 'data'),
+    Input('notif-refresh', 'data'),
+)
+def update_notif_badge(teacher_name, refresh_counter):
+    base_style = {
+        'position': 'absolute', 'top': '-5px', 'right': '-5px',
+        'background': '#dc3545', 'color': 'white', 'borderRadius': '50%',
+        'minWidth': '20px', 'height': '20px', 'fontSize': '0.7rem',
+        'lineHeight': '20px', 'textAlign': 'center', 'padding': '0 4px'
+    }
+    if not teacher_name:
+        base_style['display'] = 'none'
+        return "", base_style
+    store = load_notifications_store()
+    notifications = store.get(teacher_name, {}).get('notifications', [])
+    unread = sum(1 for n in notifications if not n.get('read', False))
+    if unread == 0:
+        base_style['display'] = 'none'
+        return "", base_style
+    base_style['display'] = 'inline-block'
+    return str(unread), base_style
+
+
+@app.callback(
+    Output('notif-refresh', 'data'),
+    Input({'type': 'notif-action', 'action': ALL}, 'n_clicks'),
+    Input({'type': 'notif-delete', 'index': ALL}, 'n_clicks'),
+    State('notif-user', 'data'),
+    State('notif-refresh', 'data'),
+    prevent_initial_call=True
+)
+def notif_actions(action_clicks_list, delete_clicks_list,
+                  teacher_name, refresh_counter):
+    ctx = callback_context
+    if not ctx.triggered or not teacher_name:
+        return refresh_counter or 0
+
+    prop_id = ctx.triggered[0]['prop_id']
+
+    try:
+        id_str = prop_id.rsplit('.', 1)[0]
+        id_dict = ast.literal_eval(id_str)
+    except Exception as e:
+        print(f"[notif] Не удалось распарсить prop_id={prop_id!r}: {e}")
+        return refresh_counter or 0
+
+    store = load_notifications_store()
+    entry = store.get(teacher_name)
+    if entry is None:
+        return (refresh_counter or 0) + 1
+
+    notifications = entry.get('notifications', [])
+    id_type = id_dict.get('type', '')
+
+    # --- Кнопки в шапке панели ---
+    if id_type == 'notif-action':
+        action = id_dict.get('action', '')
+        if action == 'mark-all-read':
+            for n in notifications:
+                n['read'] = True
+            entry['notifications'] = notifications
+            save_notifications_store(store)
+            print(f"[notif] {teacher_name}: все уведомления отмечены прочитанными")
+            return (refresh_counter or 0) + 1
+        elif action == 'clear-history':
+            entry['notifications'] = [n for n in notifications
+                                      if not n.get('read', False)]
+            save_notifications_store(store)
+            print(f"[notif] {teacher_name}: история очищена")
+            return (refresh_counter or 0) + 1
+
+    # --- Крестик на карточке ---
+    elif id_type == 'notif-delete':
+        notif_id = str(id_dict.get('index', ''))
+        entry['notifications'] = [n for n in notifications
+                                  if str(n.get('id', '')) != notif_id]
+        save_notifications_store(store)
+        print(f"[notif] {teacher_name}: удалено уведомление {notif_id}")
+        return (refresh_counter or 0) + 1
+
+    return refresh_counter or 0
+
+
 # ==================== FLASK МАРШРУТЫ (ЛОГИН, ЛОГАУТ И ДР.) ====================
 @server.route('/login', methods=['GET', 'POST'])
 def login():
@@ -2401,5 +3224,10 @@ def render_page_from_url(pathname):
 # ==================== ЗАПУСК ====================
 load_logs_from_file()
 load_weekly_models()
+
+# Фоновая проверка изменений в данных после загрузки курсов и моделей
+_notif_thread = threading.Thread(target=_startup_notification_check, daemon=True)
+_notif_thread.start()
+
 if __name__ == '__main__':
     server.run(debug=True, host='0.0.0.0', port=5000)
