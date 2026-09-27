@@ -1,0 +1,22 @@
+# Рантайм-файлы
+notifications_store.json
+digital_footprint.csv
+digital_footprint_backup.json
+feedback_messages.csv
+
+# Python
+__pycache__/
+*.py[cod]
+venv/
+.venv/
+
+# Данные и модели
+*.db
+*.pkl
+*.xlsx
+*.bak
+*.backup
+
+# IDE
+.vscode/
+.idea/
