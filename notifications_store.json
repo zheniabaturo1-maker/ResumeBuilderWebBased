@@ -2,26 +2,26 @@
   "Есин Роман Витальевич": {
     "last_signature": {
       "ПрИнж_ТВМС": {
-        "total_students": 75,
-        "total_teacher_events": 1520,
-        "total_student_events": 4595,
-        "avg_teacher_weekly": 380.0,
-        "avg_students_weekly": 1148.8,
-        "avg_session_length": 14.1,
+        "total_students": 76,
+        "total_teacher_events": 1671,
+        "total_student_events": 5687,
+        "avg_teacher_weekly": 417.8,
+        "avg_students_weekly": 1421.8,
+        "avg_session_length": 12.8,
         "feedback_count": 2,
         "feedback_speed": 0.1,
-        "course_updates_total": 374,
+        "course_updates_total": 394,
         "iopa_total": 65,
         "iopa_level": "Средний",
         "actual_weeks": 4
       },
       "Мат_стат_ПМКАИБАС": {
-        "total_students": 60,
-        "total_teacher_events": 3790,
-        "total_student_events": 7174,
-        "avg_teacher_weekly": 285.0,
-        "avg_students_weekly": 1770.5,
-        "avg_session_length": 15.8,
+        "total_students": 61,
+        "total_teacher_events": 3803,
+        "total_student_events": 7691,
+        "avg_teacher_weekly": 288.2,
+        "avg_students_weekly": 1899.8,
+        "avg_session_length": 15.0,
         "feedback_count": 4,
         "feedback_speed": 0.0,
         "course_updates_total": 705,
@@ -30,11 +30,11 @@
         "actual_weeks": 4
       },
       "РКИиП_ТВиМС": {
-        "total_students": 72,
-        "total_teacher_events": 4203,
-        "total_student_events": 15919,
-        "avg_teacher_weekly": 1026.8,
-        "avg_students_weekly": 3976.2,
+        "total_students": 74,
+        "total_teacher_events": 4344,
+        "total_student_events": 16688,
+        "avg_teacher_weekly": 1062.0,
+        "avg_students_weekly": 4168.5,
         "avg_session_length": 9.3,
         "feedback_count": 252,
         "feedback_speed": 0.0,
@@ -45,34 +45,223 @@
       },
       "NN_бакалавриат": {
         "total_students": 18,
-        "total_teacher_events": 562,
-        "total_student_events": 1345,
-        "avg_teacher_weekly": 139.0,
-        "avg_students_weekly": 336.0,
-        "avg_session_length": 4.6,
-        "feedback_count": 26,
-        "feedback_speed": 11.9,
-        "course_updates_total": 170,
+        "total_teacher_events": 673,
+        "total_student_events": 1793,
+        "avg_teacher_weekly": 166.8,
+        "avg_students_weekly": 448.0,
+        "avg_session_length": 5.1,
+        "feedback_count": 69,
+        "feedback_speed": 6.9,
+        "course_updates_total": 184,
         "iopa_total": 75,
         "iopa_level": "Высокий",
         "actual_weeks": 4
       }
     },
-    "last_check": "2026-09-24 12:52:25",
-    "notifications": []
+    "last_check": "2026-09-27 07:12:57",
+    "notifications": [
+      {
+        "id": "f482a237-1399-46f0-a47f-59162753646f",
+        "timestamp": "2026-09-27 07:12:57",
+        "course": "ПрИнж_ТВМС",
+        "changes": [
+          {
+            "field": "total_students",
+            "label": "Всего студентов",
+            "old": 75,
+            "new": 76
+          },
+          {
+            "field": "total_teacher_events",
+            "label": "Всего событий преподавателя",
+            "old": 1520,
+            "new": 1671
+          },
+          {
+            "field": "total_student_events",
+            "label": "Всего событий студентов",
+            "old": 4595,
+            "new": 5687
+          },
+          {
+            "field": "avg_teacher_weekly",
+            "label": "Ср. активность преподавателя (событий/нед)",
+            "old": 380.0,
+            "new": 417.8
+          },
+          {
+            "field": "avg_students_weekly",
+            "label": "Ср. активность студентов (событий/нед)",
+            "old": 1148.8,
+            "new": 1421.8
+          },
+          {
+            "field": "avg_session_length",
+            "label": "Ср. длина сессии (мин)",
+            "old": 14.1,
+            "new": 12.8
+          },
+          {
+            "field": "course_updates_total",
+            "label": "Всего обновлений курса",
+            "old": 374,
+            "new": 394
+          }
+        ],
+        "read": true
+      },
+      {
+        "id": "4c09f56d-c34f-4425-b1ad-9b3d093e6547",
+        "timestamp": "2026-09-27 07:12:57",
+        "course": "Мат_стат_ПМКАИБАС",
+        "changes": [
+          {
+            "field": "total_students",
+            "label": "Всего студентов",
+            "old": 60,
+            "new": 61
+          },
+          {
+            "field": "total_teacher_events",
+            "label": "Всего событий преподавателя",
+            "old": 3790,
+            "new": 3803
+          },
+          {
+            "field": "total_student_events",
+            "label": "Всего событий студентов",
+            "old": 7174,
+            "new": 7691
+          },
+          {
+            "field": "avg_teacher_weekly",
+            "label": "Ср. активность преподавателя (событий/нед)",
+            "old": 285.0,
+            "new": 288.2
+          },
+          {
+            "field": "avg_students_weekly",
+            "label": "Ср. активность студентов (событий/нед)",
+            "old": 1770.5,
+            "new": 1899.8
+          },
+          {
+            "field": "avg_session_length",
+            "label": "Ср. длина сессии (мин)",
+            "old": 15.8,
+            "new": 15.0
+          }
+        ],
+        "read": true
+      },
+      {
+        "id": "bed4d1ea-3c7e-4cf6-bf20-d62db380a109",
+        "timestamp": "2026-09-27 07:12:57",
+        "course": "РКИиП_ТВиМС",
+        "changes": [
+          {
+            "field": "total_students",
+            "label": "Всего студентов",
+            "old": 72,
+            "new": 74
+          },
+          {
+            "field": "total_teacher_events",
+            "label": "Всего событий преподавателя",
+            "old": 4203,
+            "new": 4344
+          },
+          {
+            "field": "total_student_events",
+            "label": "Всего событий студентов",
+            "old": 15919,
+            "new": 16688
+          },
+          {
+            "field": "avg_teacher_weekly",
+            "label": "Ср. активность преподавателя (событий/нед)",
+            "old": 1026.8,
+            "new": 1062.0
+          },
+          {
+            "field": "avg_students_weekly",
+            "label": "Ср. активность студентов (событий/нед)",
+            "old": 3976.2,
+            "new": 4168.5
+          }
+        ],
+        "read": true
+      },
+      {
+        "id": "396f44d6-a1d6-494c-a1db-4c2927c881a3",
+        "timestamp": "2026-09-27 07:12:57",
+        "course": "NN_бакалавриат",
+        "changes": [
+          {
+            "field": "total_teacher_events",
+            "label": "Всего событий преподавателя",
+            "old": 562,
+            "new": 673
+          },
+          {
+            "field": "total_student_events",
+            "label": "Всего событий студентов",
+            "old": 1345,
+            "new": 1793
+          },
+          {
+            "field": "avg_teacher_weekly",
+            "label": "Ср. активность преподавателя (событий/нед)",
+            "old": 139.0,
+            "new": 166.8
+          },
+          {
+            "field": "avg_students_weekly",
+            "label": "Ср. активность студентов (событий/нед)",
+            "old": 336.0,
+            "new": 448.0
+          },
+          {
+            "field": "avg_session_length",
+            "label": "Ср. длина сессии (мин)",
+            "old": 4.6,
+            "new": 5.1
+          },
+          {
+            "field": "feedback_count",
+            "label": "События обратной связи",
+            "old": 26,
+            "new": 69
+          },
+          {
+            "field": "feedback_speed",
+            "label": "Скорость отклика (ч)",
+            "old": 11.9,
+            "new": 6.9
+          },
+          {
+            "field": "course_updates_total",
+            "label": "Всего обновлений курса",
+            "old": 170,
+            "new": 184
+          }
+        ],
+        "read": true
+      }
+    ]
   },
   "Карнаухова Ольга Александровна": {
     "last_signature": {
       "Математический анализ (Часть 1)": {
-        "total_students": 160,
-        "total_teacher_events": 363,
-        "total_student_events": 6717,
-        "avg_teacher_weekly": 89.8,
-        "avg_students_weekly": 1672.5,
-        "avg_session_length": 5.0,
+        "total_students": 162,
+        "total_teacher_events": 371,
+        "total_student_events": 8501,
+        "avg_teacher_weekly": 91.8,
+        "avg_students_weekly": 2118.5,
+        "avg_session_length": 4.6,
         "feedback_count": 82,
         "feedback_speed": 0.0,
-        "course_updates_total": 0,
+        "course_updates_total": 3,
         "iopa_total": 50,
         "iopa_level": "Низкий",
         "actual_weeks": 4
@@ -80,9 +269,9 @@
       "Математический анализ (Часть 2)": {
         "total_students": 23,
         "total_teacher_events": 4,
-        "total_student_events": 121,
+        "total_student_events": 131,
         "avg_teacher_weekly": 1.0,
-        "avg_students_weekly": 19.8,
+        "avg_students_weekly": 22.2,
         "avg_session_length": 0.7,
         "feedback_count": 0,
         "feedback_speed": null,
@@ -92,8 +281,78 @@
         "actual_weeks": 4
       }
     },
-    "last_check": "2026-09-24 12:52:26",
+    "last_check": "2026-09-27 07:12:58",
     "notifications": [
+      {
+        "id": "46aad9b8-a6c6-4824-bb66-820e0c41b961",
+        "timestamp": "2026-09-27 07:12:58",
+        "course": "Математический анализ (Часть 1)",
+        "changes": [
+          {
+            "field": "total_students",
+            "label": "Всего студентов",
+            "old": 160,
+            "new": 162
+          },
+          {
+            "field": "total_teacher_events",
+            "label": "Всего событий преподавателя",
+            "old": 363,
+            "new": 371
+          },
+          {
+            "field": "total_student_events",
+            "label": "Всего событий студентов",
+            "old": 6717,
+            "new": 8501
+          },
+          {
+            "field": "avg_teacher_weekly",
+            "label": "Ср. активность преподавателя (событий/нед)",
+            "old": 89.8,
+            "new": 91.8
+          },
+          {
+            "field": "avg_students_weekly",
+            "label": "Ср. активность студентов (событий/нед)",
+            "old": 1672.5,
+            "new": 2118.5
+          },
+          {
+            "field": "avg_session_length",
+            "label": "Ср. длина сессии (мин)",
+            "old": 5.0,
+            "new": 4.6
+          },
+          {
+            "field": "course_updates_total",
+            "label": "Всего обновлений курса",
+            "old": 0,
+            "new": 3
+          }
+        ],
+        "read": false
+      },
+      {
+        "id": "6aa3dc4e-34d8-4d48-bc96-56a042279d9b",
+        "timestamp": "2026-09-27 07:12:58",
+        "course": "Математический анализ (Часть 2)",
+        "changes": [
+          {
+            "field": "total_student_events",
+            "label": "Всего событий студентов",
+            "old": 121,
+            "new": 131
+          },
+          {
+            "field": "avg_students_weekly",
+            "label": "Ср. активность студентов (событий/нед)",
+            "old": 19.8,
+            "new": 22.2
+          }
+        ],
+        "read": false
+      },
       {
         "id": "ce0fe1ba-8cf0-4a33-85c5-32fab77e3d2d",
         "timestamp": "2026-09-24 12:51:57",
@@ -203,22 +462,78 @@
   "Кустицкая Татьяна Алексеевна": {
     "last_signature": {
       "Машинное обучение": {
-        "total_students": 16,
-        "total_teacher_events": 419,
-        "total_student_events": 590,
-        "avg_teacher_weekly": 80.2,
-        "avg_students_weekly": 141.5,
-        "avg_session_length": 17.4,
-        "feedback_count": 58,
-        "feedback_speed": 1.1,
+        "total_students": 17,
+        "total_teacher_events": 482,
+        "total_student_events": 777,
+        "avg_teacher_weekly": 96.0,
+        "avg_students_weekly": 188.2,
+        "avg_session_length": 15.4,
+        "feedback_count": 82,
+        "feedback_speed": 1.8,
         "course_updates_total": 41,
         "iopa_total": 80,
         "iopa_level": "Высокий",
         "actual_weeks": 4
       }
     },
-    "last_check": "2026-09-24 12:52:26",
+    "last_check": "2026-09-27 07:12:59",
     "notifications": [
+      {
+        "id": "1e140134-dd72-44a5-8c9d-dd97b12d37c2",
+        "timestamp": "2026-09-27 07:12:59",
+        "course": "Машинное обучение",
+        "changes": [
+          {
+            "field": "total_students",
+            "label": "Всего студентов",
+            "old": 16,
+            "new": 17
+          },
+          {
+            "field": "total_teacher_events",
+            "label": "Всего событий преподавателя",
+            "old": 419,
+            "new": 482
+          },
+          {
+            "field": "total_student_events",
+            "label": "Всего событий студентов",
+            "old": 590,
+            "new": 777
+          },
+          {
+            "field": "avg_teacher_weekly",
+            "label": "Ср. активность преподавателя (событий/нед)",
+            "old": 80.2,
+            "new": 96.0
+          },
+          {
+            "field": "avg_students_weekly",
+            "label": "Ср. активность студентов (событий/нед)",
+            "old": 141.5,
+            "new": 188.2
+          },
+          {
+            "field": "avg_session_length",
+            "label": "Ср. длина сессии (мин)",
+            "old": 17.4,
+            "new": 15.4
+          },
+          {
+            "field": "feedback_count",
+            "label": "События обратной связи",
+            "old": 58,
+            "new": 82
+          },
+          {
+            "field": "feedback_speed",
+            "label": "Скорость отклика (ч)",
+            "old": 1.1,
+            "new": 1.8
+          }
+        ],
+        "read": false
+      },
       {
         "id": "83f7afac-7b2a-418d-ac19-2fbaa2019ca0",
         "timestamp": "2026-09-24 12:51:57",
@@ -306,36 +621,154 @@
   "Кошелева Анна Владимировна": {
     "last_signature": {
       "АиГ": {
-        "total_students": 61,
-        "total_teacher_events": 235,
-        "total_student_events": 1820,
-        "avg_teacher_weekly": 58.8,
-        "avg_students_weekly": 450.5,
-        "avg_session_length": 10.0,
+        "total_students": 63,
+        "total_teacher_events": 243,
+        "total_student_events": 2058,
+        "avg_teacher_weekly": 60.8,
+        "avg_students_weekly": 510.0,
+        "avg_session_length": 8.8,
         "feedback_count": 0,
         "feedback_speed": null,
-        "course_updates_total": 2,
-        "iopa_total": 35,
+        "course_updates_total": 3,
+        "iopa_total": 30,
         "iopa_level": "Очень низкий",
         "actual_weeks": 4
       },
       "МЛиТА": {
-        "total_students": 62,
-        "total_teacher_events": 2539,
-        "total_student_events": 1208,
-        "avg_teacher_weekly": 545.2,
-        "avg_students_weekly": 297.5,
-        "avg_session_length": 30.7,
-        "feedback_count": 39,
-        "feedback_speed": 3.6,
-        "course_updates_total": 511,
+        "total_students": 64,
+        "total_teacher_events": 3902,
+        "total_student_events": 2544,
+        "avg_teacher_weekly": 886.0,
+        "avg_students_weekly": 631.5,
+        "avg_session_length": 35.7,
+        "feedback_count": 352,
+        "feedback_speed": 0.6,
+        "course_updates_total": 743,
         "iopa_total": 90,
         "iopa_level": "Очень высокий",
         "actual_weeks": 4
       }
     },
-    "last_check": "2026-09-24 12:52:26",
+    "last_check": "2026-09-27 07:13:00",
     "notifications": [
+      {
+        "id": "d1da0f70-c972-4398-8b8e-6971295f97a9",
+        "timestamp": "2026-09-27 07:13:00",
+        "course": "АиГ",
+        "changes": [
+          {
+            "field": "total_students",
+            "label": "Всего студентов",
+            "old": 61,
+            "new": 63
+          },
+          {
+            "field": "total_teacher_events",
+            "label": "Всего событий преподавателя",
+            "old": 235,
+            "new": 243
+          },
+          {
+            "field": "total_student_events",
+            "label": "Всего событий студентов",
+            "old": 1820,
+            "new": 2058
+          },
+          {
+            "field": "avg_teacher_weekly",
+            "label": "Ср. активность преподавателя (событий/нед)",
+            "old": 58.8,
+            "new": 60.8
+          },
+          {
+            "field": "avg_students_weekly",
+            "label": "Ср. активность студентов (событий/нед)",
+            "old": 450.5,
+            "new": 510.0
+          },
+          {
+            "field": "avg_session_length",
+            "label": "Ср. длина сессии (мин)",
+            "old": 10.0,
+            "new": 8.8
+          },
+          {
+            "field": "course_updates_total",
+            "label": "Всего обновлений курса",
+            "old": 2,
+            "new": 3
+          },
+          {
+            "field": "iopa_total",
+            "label": "ИОПА (балл)",
+            "old": 35,
+            "new": 30
+          }
+        ],
+        "read": false
+      },
+      {
+        "id": "dafe2276-22c8-45a4-aecf-32f911db6731",
+        "timestamp": "2026-09-27 07:13:00",
+        "course": "МЛиТА",
+        "changes": [
+          {
+            "field": "total_students",
+            "label": "Всего студентов",
+            "old": 62,
+            "new": 64
+          },
+          {
+            "field": "total_teacher_events",
+            "label": "Всего событий преподавателя",
+            "old": 2539,
+            "new": 3902
+          },
+          {
+            "field": "total_student_events",
+            "label": "Всего событий студентов",
+            "old": 1208,
+            "new": 2544
+          },
+          {
+            "field": "avg_teacher_weekly",
+            "label": "Ср. активность преподавателя (событий/нед)",
+            "old": 545.2,
+            "new": 886.0
+          },
+          {
+            "field": "avg_students_weekly",
+            "label": "Ср. активность студентов (событий/нед)",
+            "old": 297.5,
+            "new": 631.5
+          },
+          {
+            "field": "avg_session_length",
+            "label": "Ср. длина сессии (мин)",
+            "old": 30.7,
+            "new": 35.7
+          },
+          {
+            "field": "feedback_count",
+            "label": "События обратной связи",
+            "old": 39,
+            "new": 352
+          },
+          {
+            "field": "feedback_speed",
+            "label": "Скорость отклика (ч)",
+            "old": 3.6,
+            "new": 0.6
+          },
+          {
+            "field": "course_updates_total",
+            "label": "Всего обновлений курса",
+            "old": 511,
+            "new": 743
+          }
+        ],
+        "read": false
+      },
       {
         "id": "e3c7906c-7b48-4468-8e35-4c9751395c1c",
         "timestamp": "2026-09-24 12:51:58",
@@ -477,9 +910,9 @@
       "Теоретическая механика": {
         "total_students": 18,
         "total_teacher_events": 214,
-        "total_student_events": 266,
+        "total_student_events": 534,
         "avg_teacher_weekly": 53.5,
-        "avg_students_weekly": 64.5,
+        "avg_students_weekly": 131.5,
         "avg_session_length": 14.1,
         "feedback_count": 3,
         "feedback_speed": 0.0,
@@ -491,9 +924,9 @@
       "Численные методы": {
         "total_students": 31,
         "total_teacher_events": 347,
-        "total_student_events": 1288,
+        "total_student_events": 1364,
         "avg_teacher_weekly": 86.8,
-        "avg_students_weekly": 319.0,
+        "avg_students_weekly": 338.0,
         "avg_session_length": 18.6,
         "feedback_count": 113,
         "feedback_speed": 1.5,
@@ -503,8 +936,48 @@
         "actual_weeks": 4
       }
     },
-    "last_check": "2026-09-24 12:52:26",
+    "last_check": "2026-09-27 07:13:00",
     "notifications": [
+      {
+        "id": "23803bbe-1e8f-4725-a826-688c5098cfde",
+        "timestamp": "2026-09-27 07:13:00",
+        "course": "Теоретическая механика",
+        "changes": [
+          {
+            "field": "total_student_events",
+            "label": "Всего событий студентов",
+            "old": 266,
+            "new": 534
+          },
+          {
+            "field": "avg_students_weekly",
+            "label": "Ср. активность студентов (событий/нед)",
+            "old": 64.5,
+            "new": 131.5
+          }
+        ],
+        "read": false
+      },
+      {
+        "id": "3d436ae4-f5fd-4605-982f-5f15a050cf3b",
+        "timestamp": "2026-09-27 07:13:00",
+        "course": "Численные методы",
+        "changes": [
+          {
+            "field": "total_student_events",
+            "label": "Всего событий студентов",
+            "old": 1288,
+            "new": 1364
+          },
+          {
+            "field": "avg_students_weekly",
+            "label": "Ср. активность студентов (событий/нед)",
+            "old": 319.0,
+            "new": 338.0
+          }
+        ],
+        "read": false
+      },
       {
         "id": "4a247781-f262-452a-b723-c0621912f455",
         "timestamp": "2026-09-24 12:51:58",
