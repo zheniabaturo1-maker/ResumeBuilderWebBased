@@ -56,6 +56,9 @@ FILE_PATHS = {
 'Теория рисков': os.path.join(BASE_DIR, "logs_Теория рисков_20260929-0954.xlsx"),
 'Мат. мод. в задачах ИБ': os.path.join(BASE_DIR, "logs_Мат. мод. в задачах ИБ_1_20260929-0955.xlsx"),
 'Мат.ан.': os.path.join(BASE_DIR, "logs_Мат.ан.-1 (09.03.02)_20260929-0956.xlsx"),
+'Мат.ан. (ИБ)': os.path.join(BASE_DIR, "logs_МА-1 (ИБ)_20260930-1134.xlsx"),
+'ТФКП': os.path.join(BASE_DIR, "logs_ТФКП_20260930-1134.xlsx"),
+'ТВиМС (ПрИн)': os.path.join(BASE_DIR, "logs_ТВиМС (ПрИн)_20260930-1134.xlsx"),
 }
 
 SPRING_COURSES_2021 = []
@@ -70,10 +73,8 @@ SPRING_COURSES_2025 = []
 AUTUMN_COURSES_2025 = []
 SPRING_COURSES_2026 = []
 AUTUMN_COURSES_2026 = ['ПрИнж_ТВМС', 'Мат_стат_ПМКАИБАС', 'РКИиП_ТВиМС', 'NN_бакалавриат', 'Математический анализ (Часть 1)', 'Математический анализ (Часть 2)', 'Машинное обучение', 'АиГ', 'МЛиТА',
-                       'Теоретическая механика', 'Численные методы', 
-                       'Доп. гл. мат. анализа', 'Мат. ан. Доп. гл.', 'Интегральные преобразования и их применение', 'Мат. анализ (Часть 1)', 'Дифференциальные уравнения',
-                       'Теория рисков', 'Мат. мод. в задачах ИБ', 'Мат.ан.'
-                      ]
+                       'Теоретическая механика', 'Численные методы', 'Доп. гл. мат. анализа', 'Мат. ан. Доп. гл.', 'Интегральные преобразования и их применение', 'Мат. анализ (Часть 1)', 'Дифференциальные уравнения',
+                       'Теория рисков', 'Мат. мод. в задачах ИБ', 'Мат.ан.', 'Мат.ан. (ИБ)', 'ТФКП', 'ТВиМС (ПрИн)']
 
 WEEK_RANGES = {
     'SPRING_2021': [
@@ -184,10 +185,12 @@ teacher_dict = {
     'Математический анализ (Часть 2)': 'Карнаухова Ольга Александровна', 'Машинное обучение':'Кустицкая Татьяна Алексеевна',
     'АиГ':'Кошелева Анна Владимировна', 'МЛиТА':'Кошелева Анна Владимировна',
     'Теоретическая механика':'Федорова Наталья Александровна', 'Численные методы':'Федорова Наталья Александровна',
-    #'Доп. гл. мат. анализа':'Федотова Ирина Михайловна', 'Мат. ан. Доп. гл.':'Федотова Ирина Михайловна',
-    #'Интегральные преобразования и их применение':'Антипова Ирина Августовна', 'Мат. анализ (Часть 1)':'Антипова Ирина Августовна',
-    #'Дифференциальные уравнения':'Антипова Ирина Августовна', 'Теория рисков':'Кириллова Светлана Владимировна',
-    #'Мат. мод. в задачах ИБ':'Кириллова Светлана Владимировна', 'Мат.ан.':'Кириллова Светлана Владимировна',
+    'Доп. гл. мат. анализа':'Федотова Ирина Михайловна', 'Мат. ан. Доп. гл.':'Федотова Ирина Михайловна',
+    'Интегральные преобразования и их применение':'Антипова Ирина Августовна', 'Мат. анализ (Часть 1)':'Антипова Ирина Августовна',
+    'Дифференциальные уравнения':'Антипова Ирина Августовна', 'Теория рисков':'Кириллова Светлана Владимировна',
+    'Мат. мод. в задачах ИБ':'Кириллова Светлана Владимировна', 'Мат.ан.':'Кириллова Светлана Владимировна',
+    'Мат.ан. (ИБ)':'Кочеткова Татьяна Олеговна', 'ТФКП':'Кочеткова Татьяна Олеговна',
+    'ТВиМС (ПрИн)':'Кочеткова Татьяна Олеговна',
 }
 TEACHER_CREDENTIALS = {
     'Преподаватель 1': 'pass1',
@@ -203,6 +206,7 @@ TEACHER_CREDENTIALS = {
     'Федорова Наталья Александровна': 'a2ddgeOhd0',
     'Федотова Ирина Михайловна': 'V3TDQ3mSel',
     'Кириллова Светлана Владимировна': 'Vl0Dvn20yf',
+    'Кочеткова Татьяна Олеговна': 'uooh7JlPW9',
     'Антипова Ирина Августовна': 'qp96YnuKNo',
     'Заведующий': 'qp96YnuKNo',
 }
@@ -286,7 +290,7 @@ def _filter_blocked_ips(df):
     mask = df[ip_col].apply(lambda v: _normalize_ip_str(v) in BLOCKED_IPS_IN_LOGS)
     removed = int(mask.sum())
     if removed:
-        print(f"  > Отфильтровано {removed} строк с заблокированными IP (колонка '{ip_col}')")
+        print(f"  → Отфильтровано {removed} строк с заблокированными IP (колонка '{ip_col}')")
     return df[~mask]
 
 
@@ -1057,14 +1061,14 @@ def _render_notifications_panel(teacher_name):
             html.Div([
                 html.Span(f"• {ch.get('label')}: ", style={'fontWeight': '500'}),
                 html.Span(str(ch.get('old')), style={'color': '#6c757d'}),
-                html.Span(" > ", style={'color': '#007bff', 'fontWeight': 'bold'}),
+                html.Span(" → ", style={'color': '#007bff', 'fontWeight': 'bold'}),
                 html.Span(str(ch.get('new')), style={'color': '#28a745', 'fontWeight': 'bold'})
             ], style={'fontSize': '0.85rem', 'marginTop': '2px'})
             for ch in n.get('changes', [])
         ]
         items.append(html.Div([
             html.Button(
-                "?",
+                "×",
                 id={'type': 'notif-delete', 'index': notif_id},
                 n_clicks=0,
                 title="Удалить уведомление",
@@ -2113,12 +2117,12 @@ def update_main_graphs(selected_course, selected_week, teacher_name, current_use
                 else:
                     dens = ped['density_info'].get(m, 0)
                     epw = feedback_count / max(actual_weeks, 1) if feedback_count else 0
-                    raw_display = f"{raw:.2f} ч ? коэф. {dens:.2f} ({feedback_count} соб. / {actual_weeks} нед = {epw:.2f}/нед)"
+                    raw_display = f"{raw:.2f} ч × коэф. {dens:.2f} ({feedback_count} соб. / {actual_weeks} нед = {epw:.2f}/нед)"
             elif m == 'course_updates':
                 if raw is None or raw == 0:
-                    raw_display = f"0 (?{actual_weeks} нед = 0.00)"
+                    raw_display = f"0 (÷{actual_weeks} нед = 0.00)"
                 else:
-                    raw_display = f"{raw} (?{actual_weeks} нед = {norm:.2f})"
+                    raw_display = f"{raw} (÷{actual_weeks} нед = {norm:.2f})"
             elif m == 'session_length':
                 raw_display = f"{raw:.1f}" if raw is not None else "—"
             else:
@@ -2136,7 +2140,7 @@ def update_main_graphs(selected_course, selected_week, teacher_name, current_use
                 html.Th("Метрика"),
                 html.Th("Значение"),
                 html.Th("Очки (0–100)"),
-                html.Th("Вклад (?0.25)")
+                html.Th("Вклад (×0.25)")
             ])),
             html.Tbody(rows + [html.Tr([
                 html.Td(html.Strong("Итого")),
@@ -2168,12 +2172,12 @@ def update_main_graphs(selected_course, selected_week, teacher_name, current_use
                 html.Div([
                     breakdown_table,
                     html.Small(
-                        "Итоговый балл = сумма вкладов (очки ? вес 0.25). "
+                        "Итоговый балл = сумма вкладов (очки × вес 0.25). "
                         "Для «Обновлений» очки считаются по среднему числу обновлений в неделю "
                         f"(всего / {actual_weeks} нед). "
                         "Для «Скорости отклика» очки умножаются на коэффициент плотности "
                         f"min((событий в неделю) / {FEEDBACK_DENSITY_BASE_PER_WEEK:g}, 1). "
-                        "Уровни: «Очень низкий» < 40 ? «Низкий» < 55 ? «Средний» < 70 ? «Высокий» < 85 ? «Очень высокий».",
+                        "Уровни: «Очень низкий» < 40 ≤ «Низкий» < 55 ≤ «Средний» < 70 ≤ «Высокий» < 85 ≤ «Очень высокий».",
                         style={'display': 'block', 'color': '#6c757d', 'marginTop': '8px'})
                 ], style={'marginTop': '10px'})
             ], open=False, style={'marginTop': '4px'})
@@ -2467,6 +2471,12 @@ def update_teacher_info(teacher_name, avg_teacher, avg_student, current_user):
                 'education': 'Доктор технических наук', 'experience': '22 года преподавания',
                 'placeOfWork': 'Кафедра прикладной математики и анализа данных, доцент',
                 'phone': '+7 (391) 206-45-32', 'email': 'skirillova@sfu-kras.ru'},
+            'Кочеткова Татьяна Олеговна': {
+                'avatar': 'https://img.icons8.com/color/96/000000/user-female-circle--v1.png',
+                'position': 'Преподаватель теории функций комплексного переменного',
+                'education': 'Кандидат физико-математических наук', 'experience': '29 лет преподавания',
+                'placeOfWork': 'Кафедра прикладной математики и анализа данных, доцент',
+                'phone': '+7 (391) 206-45-32', 'email': 'tkochetkova@sfu-kras.ru'},
         }
         info = teacher_info.get(teacher_name, {})
         teacher_courses = [c for c, t in teacher_dict.items() if t == teacher_name]
@@ -2673,10 +2683,10 @@ def train_models_callback(n_clicks):
         try:
             df_weekly = train_weekly_models(GRADES_FILE)
             load_weekly_models()
-            return html.Div(f"? Модели обучены и сохранены. Создано {len(df_weekly)} записей.",
+            return html.Div(f"✅ Модели обучены и сохранены. Создано {len(df_weekly)} записей.",
                             style={'color': 'green'})
         except Exception as e:
-            return html.Div(f"? Ошибка обучения: {str(e)}", style={'color': 'red'})
+            return html.Div(f"❌ Ошибка обучения: {str(e)}", style={'color': 'red'})
     return ""
 
 
@@ -2851,7 +2861,7 @@ def update_teacher_predictions(teacher_name, semester, current_user):
         [
             html.Thead(html.Tr([
                 html.Th("Курс"), html.Th("Всего"),
-                html.Th("Низкий риск (0–40%)", title="Вероятность несдачи ? 40%"),
+                html.Th("Низкий риск (0–40%)", title="Вероятность несдачи ≤ 40%"),
                 html.Th("Средний риск (40–60%)", title="Вероятность несдачи 40–60%"),
                 html.Th("Высокий риск (60–100%)", title="Вероятность несдачи > 60%")
             ])),
@@ -2928,7 +2938,7 @@ def update_course_predictions(course_name, teacher_name, current_user):
                 html.H5("Низкий риск (0–40%)", style={'color': colors['green']}),
                 html.H3(f"{green}", style={'font-size': '2rem', 'color': colors['green']}),
                 html.P(f"({green / total * 100:.1f}%)", style={'color': '#6c757d'}),
-                html.Small("Вероятность несдачи ? 40%", style={'display': 'block'})
+                html.Small("Вероятность несдачи ≤ 40%", style={'display': 'block'})
             ], style={'textAlign': 'center', 'padding': '15px', 'border': f'2px solid {colors["green"]}',
                       'borderRadius': '10px', 'background': '#f9f9f9'}), width=4),
             dbc.Col(html.Div([
@@ -3157,6 +3167,7 @@ def login_page():
                     <option value="Федорова Наталья Александровна">Федорова Наталья Александровна</option>
                     <option value="Федотова Ирина Михайловна">Федотова Ирина Михайловна</option>
                     <option value="Кириллова Светлана Владимировна">Кириллова Светлана Владимировна</option>
+                    <option value="Кочеткова Татьяна Олеговна">Кочеткова Татьяна Олеговна</option>
                     <option value="Антипова Ирина Августовна">Антипова Ирина Августовна</option>
                     <option value="Заведующий">Заведующий</option>
                 </select>
