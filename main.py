@@ -726,18 +726,61 @@ FEEDBACK_EVENTS_LIST = [
 ]
 
 
+# Скорость обратной связи: Δt_i = t_feedback,i − t_submit,i для каждой i-й отправленной работы.
+# Окно T = 2 недели (занятия по чётным/нечётным неделям); ответ позже окна не отбрасывается,
+# а штрафуется: Δt̃_i = T + (1 + λ)·(Δt_i − T).
+FEEDBACK_SUBMIT_EVENTS = ['Работа представлена.', 'Представлен ответ']
+FEEDBACK_GRADE_EVENTS = ['Представленный ответ был оценен.', 'Пользователю поставлена оценка']
+FEEDBACK_WINDOW_HOURS = 336      # T
+FEEDBACK_LATE_PENALTY = 1.0      # λ
+
+
+def penalize_feedback_delay(delay_hours):
+    if delay_hours <= FEEDBACK_WINDOW_HOURS:
+        return delay_hours
+    return FEEDBACK_WINDOW_HOURS + (1 + FEEDBACK_LATE_PENALTY) * (delay_hours - FEEDBACK_WINDOW_HOURS)
+
+
+def get_feedback_delays(df, teacher_name):
+    """Для каждой работы (студент, элемент курса) — время до первой оценки преподавателя.
+    Работа без оценки учитывается, только если ожидание уже превысило окно T
+    (t_feedback = момент выгрузки лога). Возвращает DataFrame [t_submit, delay_h, delay_eff_h]."""
+    cols = ['t_submit', 'delay_h', 'delay_eff_h']
+    data = df.copy()
+    data['Время'] = parse_time_column(data['Время'])
+    data = data.dropna(subset=['Время'])
+    if data.empty:
+        return pd.DataFrame(columns=cols)
+    now = data['Время'].max()
+    submits = data[data['Название события'].isin(FEEDBACK_SUBMIT_EVENTS) &
+                   (data['Полное имя пользователя'] != teacher_name)]
+    grades = data[data['Название события'].isin(FEEDBACK_GRADE_EVENTS) &
+                  (data['Полное имя пользователя'] == teacher_name) &
+                  (data['Затронутый пользователь'] != '-')]
+    rows = []
+    for (student, context), sub in submits.groupby(['Полное имя пользователя', 'Контекст события']):
+        t_submit = sub['Время'].max()
+        student_grades = grades[grades['Затронутый пользователь'] == student]
+        same_context = student_grades[student_grades['Контекст события'] == context]
+        if not same_context.empty:
+            student_grades = same_context
+        after = student_grades.loc[student_grades['Время'] >= t_submit, 'Время']
+        if not after.empty:
+            delay = (after.min() - t_submit).total_seconds() / 3600
+        else:
+            delay = (now - t_submit).total_seconds() / 3600
+            if delay <= FEEDBACK_WINDOW_HOURS:
+                continue  # работа ещё в пределах окна — ждём ответа
+        rows.append((t_submit, delay, penalize_feedback_delay(delay)))
+    return pd.DataFrame(rows, columns=cols)
+
+
 def calculate_feedback_speed(df, teacher_name):
     try:
-        df_feedback = df[(df['Полное имя пользователя'] == teacher_name) & (df['Название события'].isin(FEEDBACK_EVENTS_LIST))].copy()
-        if df_feedback.empty:
+        delays = get_feedback_delays(df, teacher_name)
+        if delays.empty:
             return None
-        df_feedback['Время'] = parse_time_column(df_feedback['Время'])
-        df_feedback = df_feedback.dropna(subset=['Время']).sort_values('Время')
-        df_feedback['time_diff'] = df_feedback['Время'].diff()
-        time_diffs = df_feedback['time_diff'][df_feedback['time_diff'] < pd.Timedelta(days=7)]
-        if time_diffs.empty:
-            return None
-        return time_diffs.mean().total_seconds() / 3600
+        return float(delays['delay_eff_h'].mean())
     except Exception as e:
         ip, ua = get_request_client_info()
         log_action(teacher_name, "Ошибка", f"calculate_feedback_speed: {str(e)}", error=True, ip=ip, user_agent=ua)
@@ -795,18 +838,36 @@ def calculate_session_length(df, teacher_name, selected_course, session_threshol
         return 0, {}, {}
 
 
+# Пятиуровневая шкала: уровни 5..1 → 100/80/60/40/20 баллов (Таблица 1 презентации).
+# Для feedback_speed порог — верхняя граница (≤), для остальных метрик — нижняя (≥).
+PEDAGOGICAL_THRESHOLDS = {
+    'weekly_activity': [(50, 100), (30, 80), (15, 60), (5, 40), (1, 20)],
+    'session_length': [(45, 100), (30, 80), (20, 60), (10, 40), (1, 20)],
+    'course_updates': [(10, 100), (7, 80), (5, 60), (3, 40), (0.001, 20)],
+    'feedback_speed': [(24, 100), (72, 80), (168, 60), (336, 40), (float('inf'), 20)]
+}
+
+
+def get_iopa_level(total_score):
+    """ИОПА = 20 × средний уровень метрик; уровень — средний уровень, округлённый до целого."""
+    if total_score >= 90:
+        return "Очень высокий", "#28a745"
+    if total_score >= 70:
+        return "Высокий", "#17a2b8"
+    if total_score >= 50:
+        return "Средний", "#ffc107"
+    if total_score >= 30:
+        return "Низкий", "#fd7e14"
+    return "Очень низкий", "#dc3545"
+
+
 # >>> ВАРИАНТ B (per-week): плотность = (feedback_count / actual_weeks) / BASE_PER_WEEK
 def calculate_pedagogical_activity_level(metrics, actual_weeks=18, feedback_count=None):
     weights = {
         'weekly_activity': 0.25, 'session_length': 0.25,
         'course_updates': 0.25, 'feedback_speed': 0.25
     }
-    pedagogical_thresholds = {
-        'weekly_activity': [(50, 100), (30, 75), (15, 50), (5, 25), (1, 10)],
-        'session_length': [(45, 100), (30, 80), (20, 60), (10, 40), (1, 20)],
-        'course_updates': [(5, 100), (3, 80), (2, 60), (1, 40)],
-        'feedback_speed': [(0, 100), (24, 80), (48, 60), (72, 40), (96, 20)]
-    }
+    pedagogical_thresholds = PEDAGOGICAL_THRESHOLDS
     normalized_scores = {}
     raw_values = {}
     normalized_inputs = {}
@@ -853,13 +914,13 @@ def calculate_pedagogical_activity_level(metrics, actual_weeks=18, feedback_coun
         density_info[metric] = 1.0
 
     total_score = sum(normalized_scores[m] * weights[m] for m in weights)
-    if total_score >= 85:
+    if total_score >= 90:
         level = "Очень высокий"; color = "#28a745"; description = "Исключительная педагогическая активность"
     elif total_score >= 70:
         level = "Высокий"; color = "#17a2b8"; description = "Высокая педагогическая активность"
-    elif total_score >= 55:
+    elif total_score >= 50:
         level = "Средний"; color = "#ffc107"; description = "Умеренная педагогическая активность"
-    elif total_score >= 40:
+    elif total_score >= 30:
         level = "Низкий"; color = "#fd7e14"; description = "Активность требует улучшения"
     else:
         level = "Очень низкий"; color = "#dc3545"; description = "Необходимо повышение активности"
@@ -899,6 +960,8 @@ def calculate_weekly_pedagogical_activity(df, teacher_name, selected_course):
                          'Состояние представленного ответа было обновлено.',
                          'Сообщение обновлено', 'Quiz attempt regraded']
 
+        feedback_delays = get_feedback_delays(df, teacher_name)
+
         rows = []
         for week_num, (start_date, end_date) in enumerate(actual_week_ranges, 1):
             week_df = df_teacher.query("@start_date <= Время <= @end_date")
@@ -920,26 +983,19 @@ def calculate_weekly_pedagogical_activity(df, teacher_name, selected_course):
 
             course_updates = int(len(week_df[week_df['Название события'].isin(update_events)]))
 
-            fb = week_df[week_df['Название события'].isin(FEEDBACK_EVENTS_LIST)].sort_values('Время')
+            fb = week_df[week_df['Название события'].isin(FEEDBACK_EVENTS_LIST)]
             fb_count_week = len(fb)
-            has_feedback = fb_count_week > 1
+            # работы, отправленные на этой неделе (задержка — со штрафом за выход за окно T)
+            week_delays = feedback_delays[(feedback_delays['t_submit'] >= pd.to_datetime(start_date)) &
+                                          (feedback_delays['t_submit'] <= pd.to_datetime(end_date))]
+            has_feedback = not week_delays.empty
             feedback_speed = 0.0
             feedback_density = 0.0
             if has_feedback:
-                diffs = fb['Время'].diff()
-                diffs = diffs[diffs < pd.Timedelta(days=7)]
-                if not diffs.empty:
-                    feedback_speed = diffs.mean().total_seconds() / 3600
-                    feedback_density = min(fb_count_week / FEEDBACK_DENSITY_BASE_WEEKLY, 1.0)
-                else:
-                    has_feedback = False
+                feedback_speed = float(week_delays['delay_eff_h'].mean())
+                feedback_density = min(max(fb_count_week, len(week_delays)) / FEEDBACK_DENSITY_BASE_WEEKLY, 1.0)
 
-            weekly_thresholds = {
-                'weekly_activity': [(50, 100), (30, 75), (15, 50), (5, 25), (1, 10)],
-                'session_length': [(45, 100), (30, 80), (20, 60), (10, 40), (1, 20)],
-                'course_updates': [(5, 100), (3, 80), (2, 60), (1, 40)],
-                'feedback_speed': [(0, 100), (24, 80), (48, 60), (72, 40), (96, 20)]
-            }
+            weekly_thresholds = PEDAGOGICAL_THRESHOLDS
             weights = {'weekly_activity': 0.25, 'session_length': 0.25,
                        'course_updates': 0.25, 'feedback_speed': 0.25}
             metrics_week = {
@@ -969,16 +1025,7 @@ def calculate_weekly_pedagogical_activity(df, teacher_name, selected_course):
                 scores[metric] = score
             total_score = sum(scores[m] * weights[m] for m in weights)
 
-            if total_score >= 85:
-                level, color = "Очень высокий", "#28a745"
-            elif total_score >= 70:
-                level, color = "Высокий", "#17a2b8"
-            elif total_score >= 55:
-                level, color = "Средний", "#ffc107"
-            elif total_score >= 40:
-                level, color = "Низкий", "#fd7e14"
-            else:
-                level, color = "Очень низкий", "#dc3545"
+            level, color = get_iopa_level(total_score)
 
             rows.append({
                 'Неделя': week_num,
@@ -2177,7 +2224,9 @@ def update_main_graphs(selected_course, selected_week, teacher_name, current_use
                         f"(всего / {actual_weeks} нед). "
                         "Для «Скорости отклика» очки умножаются на коэффициент плотности "
                         f"min((событий в неделю) / {FEEDBACK_DENSITY_BASE_PER_WEEK:g}, 1). "
-                        "Уровни: «Очень низкий» < 40 ≤ «Низкий» < 55 ≤ «Средний» < 70 ≤ «Высокий» < 85 ≤ «Очень высокий».",
+                        f"Скорость отклика — среднее время от отправки работы до оценки; ответ позже "
+                        f"{FEEDBACK_WINDOW_HOURS} ч штрафуется: T + (1 + {FEEDBACK_LATE_PENALTY:g})·(Δt − T). "
+                        "Уровни: «Очень низкий» < 30 ≤ «Низкий» < 50 ≤ «Средний» < 70 ≤ «Высокий» < 90 ≤ «Очень высокий».",
                         style={'display': 'block', 'color': '#6c757d', 'marginTop': '8px'})
                 ], style={'marginTop': '10px'})
             ], open=False, style={'marginTop': '4px'})
@@ -2230,13 +2279,13 @@ def update_iopa_weekly_graph(selected_course, teacher_name, current_user):
 
     fig = go.Figure()
 
-    fig.add_hrect(y0=0,  y1=40,  fillcolor="#dc3545", opacity=0.08, line_width=0)
-    fig.add_hrect(y0=40, y1=55,  fillcolor="#fd7e14", opacity=0.08, line_width=0)
-    fig.add_hrect(y0=55, y1=70,  fillcolor="#ffc107", opacity=0.08, line_width=0)
-    fig.add_hrect(y0=70, y1=85,  fillcolor="#17a2b8", opacity=0.08, line_width=0)
-    fig.add_hrect(y0=85, y1=100, fillcolor="#28a745", opacity=0.08, line_width=0)
+    fig.add_hrect(y0=0,  y1=30,  fillcolor="#dc3545", opacity=0.08, line_width=0)
+    fig.add_hrect(y0=30, y1=50,  fillcolor="#fd7e14", opacity=0.08, line_width=0)
+    fig.add_hrect(y0=50, y1=70,  fillcolor="#ffc107", opacity=0.08, line_width=0)
+    fig.add_hrect(y0=70, y1=90,  fillcolor="#17a2b8", opacity=0.08, line_width=0)
+    fig.add_hrect(y0=90, y1=100, fillcolor="#28a745", opacity=0.08, line_width=0)
 
-    for y in (40, 55, 70, 85):
+    for y in (30, 50, 70, 90):
         fig.add_hline(y=y, line_dash="dot", line_color="#999", line_width=1)
 
     fig.add_trace(go.Scatter(
