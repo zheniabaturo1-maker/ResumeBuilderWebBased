@@ -261,9 +261,6 @@ HIDDEN_TEACHERS = [
     'Преподаватель 4', 'Преподаватель 5', 'Преподаватель 6',
 ]
 
-# >>> ВАРИАНТ B (per-week): новый базис — 2 события в неделю
-FEEDBACK_DENSITY_BASE_PER_WEEK = 2.0
-FEEDBACK_DENSITY_BASE_WEEKLY = 2.0
 
 # ==================== НАСТРОЙКИ ОБРАТНОЙ СВЯЗИ ====================
 FEEDBACK_RECIPIENT = "baturoevgeni@yandex.ru"
@@ -615,7 +612,7 @@ def _safe_calculate_teacher_signature(teacher_name):
                 'feedback_speed': fb_speed,
             }
             ped = calculate_pedagogical_activity_level(
-                metrics, actual_weeks=actual_weeks, graded_works=fb_stats['m'] if fb_stats else 0)
+                metrics, actual_weeks=actual_weeks)
 
             signature[course] = {
                 'total_students':       total_students,
@@ -1492,8 +1489,7 @@ def get_iopa_level(total_score):
     return "Очень низкий", "#dc3545"
 
 
-# Плотность обратной связи: ρ = min((m / недель) / BASE_PER_WEEK, 1), m — число оценённых работ
-def calculate_pedagogical_activity_level(metrics, actual_weeks=18, graded_works=None):
+def calculate_pedagogical_activity_level(metrics, actual_weeks=18):
     weights = {
         'weekly_activity': 0.25, 'session_length': 0.25,
         'course_updates': 0.25, 'feedback_speed': 0.25
@@ -1502,7 +1498,6 @@ def calculate_pedagogical_activity_level(metrics, actual_weeks=18, graded_works=
     normalized_scores = {}
     raw_values = {}
     normalized_inputs = {}
-    density_info = {}
 
     actual_weeks_safe = max(int(actual_weeks), 1) if actual_weeks else 1
 
@@ -1510,20 +1505,14 @@ def calculate_pedagogical_activity_level(metrics, actual_weeks=18, graded_works=
         raw_values[metric] = value
 
         if metric == 'feedback_speed':
-            if value is None or not graded_works:
-                normalized_scores[metric] = 0
-                normalized_inputs[metric] = None
-                density_info[metric] = 0.0
-                continue
-            base_score = 0
-            for threshold, score in pedagogical_thresholds[metric]:
-                if value <= threshold:
-                    base_score = score
-                    break
-            works_per_week = graded_works / actual_weeks_safe
-            density = min(works_per_week / FEEDBACK_DENSITY_BASE_PER_WEEK, 1.0)
-            density_info[metric] = round(density, 3)
-            normalized_scores[metric] = base_score * density
+            # V_ОС ≤ D всегда; None — нет ни одной отправленной работы
+            score = 0
+            if value is not None:
+                for threshold, sc in pedagogical_thresholds[metric]:
+                    if value <= threshold:
+                        score = sc
+                        break
+            normalized_scores[metric] = score
             normalized_inputs[metric] = value
             continue
 
@@ -1541,7 +1530,6 @@ def calculate_pedagogical_activity_level(metrics, actual_weeks=18, graded_works=
                 score = sc
                 break
         normalized_scores[metric] = score
-        density_info[metric] = 1.0
 
     total_score = sum(normalized_scores[m] * weights[m] for m in weights)
     if total_score >= 90:
@@ -1563,9 +1551,7 @@ def calculate_pedagogical_activity_level(metrics, actual_weeks=18, graded_works=
         'raw_values': raw_values,
         'normalized_inputs': normalized_inputs,
         'weights': weights,
-        'density_info': density_info,
-        'actual_weeks': actual_weeks_safe,
-        'graded_works': graded_works
+        'actual_weeks': actual_weeks_safe
     }
 
 
@@ -1607,18 +1593,12 @@ def calculate_weekly_pedagogical_activity(df, teacher_name, selected_course):
 
             course_updates = int(len(week_df[week_df['Название события'].isin(update_events)]))
 
-            # работы, отправленные на этой неделе: V_ОС и плотность по оценённым работам
+            # работы, отправленные на этой неделе
             week_delays = feedback_delays[(feedback_delays['t_submit'] >= pd.to_datetime(start_date)) &
                                           (feedback_delays['t_submit'] <= pd.to_datetime(end_date))]
             week_stats = feedback_stats_from_delays(week_delays)
             has_feedback = week_stats is not None
-            feedback_speed = 0.0
-            feedback_density = 0.0
-            graded_week = 0
-            if has_feedback:
-                feedback_speed = week_stats['v']
-                graded_week = week_stats['m']
-                feedback_density = min(graded_week / FEEDBACK_DENSITY_BASE_WEEKLY, 1.0)
+            feedback_speed = week_stats['v'] if has_feedback else 0.0
 
             weekly_thresholds = PEDAGOGICAL_THRESHOLDS
             weights = {'weekly_activity': 0.25, 'session_length': 0.25,
@@ -1635,12 +1615,12 @@ def calculate_weekly_pedagogical_activity(df, teacher_name, selected_course):
                     if not has_feedback:
                         scores[metric] = 0
                         continue
-                    base_score = 0
+                    score = 0
                     for thr, sc in weekly_thresholds[metric]:
                         if value <= thr:
-                            base_score = sc
+                            score = sc
                             break
-                    scores[metric] = base_score * feedback_density
+                    scores[metric] = score
                     continue
                 score = 0
                 for thr, sc in weekly_thresholds[metric]:
@@ -1662,7 +1642,7 @@ def calculate_weekly_pedagogical_activity(df, teacher_name, selected_course):
                 'course_updates': course_updates,
                 'feedback_speed': round(feedback_speed, 1) if has_feedback else 0,
                 'feedback_speed_display': (
-                    f"{feedback_speed:.1f} (p={week_stats['p']:.2f}, плотн. {feedback_density:.2f}, m={graded_week})"
+                    f"{feedback_speed:.1f} (p={week_stats['p']:.2f}, m={week_stats['m']})"
                     if has_feedback else "—"
                 )
             })
@@ -2751,7 +2731,6 @@ def update_main_graphs(selected_course, selected_week, teacher_name, current_use
 
         feedback_count = count_feedback_events(df, teacher_name)
         fb_stats = calculate_feedback_stats(df, teacher_name)
-        graded_works = fb_stats['m'] if fb_stats else 0
 
         metrics = {
             'weekly_activity': avg_teacher,
@@ -2759,7 +2738,7 @@ def update_main_graphs(selected_course, selected_week, teacher_name, current_use
             'course_updates': total_updates,
             'feedback_speed': fb_stats['v'] if fb_stats else None
         }
-        ped = calculate_pedagogical_activity_level(metrics, actual_weeks=actual_weeks, graded_works=graded_works)
+        ped = calculate_pedagogical_activity_level(metrics, actual_weeks=actual_weeks)
 
         ped_level = html.Div([html.H4("Уровень педагогической активности:", style={'margin-bottom': '10px',
                                                                                      'text-align': 'center'}),
@@ -2785,11 +2764,8 @@ def update_main_graphs(selected_course, selected_week, teacher_name, current_use
                 if raw is None:
                     raw_display = "— (нет работ)"
                 else:
-                    dens = ped['density_info'].get(m, 0)
-                    wpw = graded_works / max(actual_weeks, 1)
-                    raw_display = (f"{raw:.2f} ч (без ответа {fb_stats['n0']} из {graded_works + fb_stats['n0']}, "
-                                   f"p = {fb_stats['p']:.2f}); плотность {dens:.2f} "
-                                   f"({graded_works} работ / {actual_weeks} нед = {wpw:.2f}/нед)")
+                    raw_display = (f"{raw:.2f} ч (без ответа {fb_stats['n0']} из {fb_stats['m'] + fb_stats['n0']}, "
+                                   f"p = {fb_stats['p']:.2f})")
             elif m == 'course_updates':
                 if raw is None or raw == 0:
                     raw_display = f"0 (÷{actual_weeks} нед = 0.00)"
@@ -2847,8 +2823,6 @@ def update_main_graphs(selected_course, selected_week, teacher_name, current_use
                         "Итоговый балл = сумма вкладов (очки × вес 0.25). "
                         "Для «Обновлений» очки считаются по среднему числу обновлений в неделю "
                         f"(всего / {actual_weeks} нед). "
-                        "Для «Скорости отклика» очки умножаются на коэффициент плотности "
-                        f"min((оценённых работ в неделю) / {FEEDBACK_DENSITY_BASE_PER_WEEK:g}, 1). "
                         f"Скорость отклика V_ОС = min(среднее Δt̃ · (1 + {FEEDBACK_UNANSWERED_PENALTY:g}·p), "
                         f"{FEEDBACK_MAX_DELAY_HOURS:g} ч): ответ позже {FEEDBACK_WINDOW_HOURS} ч штрафуется "
                         f"T + (1 + {FEEDBACK_LATE_PENALTY:g})·(Δt − T), не более {FEEDBACK_MAX_DELAY_HOURS:g} ч; "
