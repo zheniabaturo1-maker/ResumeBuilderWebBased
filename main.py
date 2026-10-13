@@ -602,7 +602,8 @@ def _safe_calculate_teacher_signature(teacher_name):
             avg_sess_len = round(float(avg_sess_len or 0), 1)
 
             fb_count = int(count_feedback_events(df_c, teacher_name))
-            fb_speed = calculate_feedback_speed(df_c, teacher_name)
+            fb_stats = calculate_feedback_stats(df_c, teacher_name)
+            fb_speed = fb_stats['v'] if fb_stats else None
             fb_speed_r = round(float(fb_speed), 1) if fb_speed is not None else None
 
             updates_total = int(len(df_teacher[df_teacher['Название события'].isin(update_events)]))
@@ -614,7 +615,7 @@ def _safe_calculate_teacher_signature(teacher_name):
                 'feedback_speed': fb_speed,
             }
             ped = calculate_pedagogical_activity_level(
-                metrics, actual_weeks=actual_weeks, feedback_count=fb_count)
+                metrics, actual_weeks=actual_weeks, graded_works=fb_stats['m'] if fb_stats else 0)
 
             signature[course] = {
                 'total_students':       total_students,
@@ -1331,26 +1332,32 @@ FEEDBACK_EVENTS_LIST = [
 ]
 
 
-# Скорость обратной связи: Δt_i = t_feedback,i − t_submit,i для каждой i-й отправленной работы.
-# Окно T = 2 недели (занятия по чётным/нечётным неделям); ответ позже окна не отбрасывается,
-# а штрафуется: Δt̃_i = T + (1 + λ)·(Δt_i − T).
+# Скорость обратной связи:
+#   V_ОС = min( (1/m)·Σ Δt̃_i · (1 + k·p), D ),  p = n0 / n,  n = m + n0
+#   Δt̃_i = Δt_i, если Δt_i ≤ T;  иначе min(T + (1 + λ)·(Δt_i − T), D),  D = (1 + λ)·T
+#   Δt_i = t_feedback,i − t_submit,i;  если оценённых работ нет, V_ОС = D.
+# Окно T = 2 недели (занятия по чётным/нечётным неделям).
 FEEDBACK_SUBMIT_EVENTS = ['Работа представлена.', 'Представлен ответ']
 FEEDBACK_GRADE_EVENTS = ['Представленный ответ был оценен.', 'Пользователю поставлена оценка']
 FEEDBACK_WINDOW_HOURS = 336      # T
 FEEDBACK_LATE_PENALTY = 1.0      # λ
+FEEDBACK_MAX_DELAY_HOURS = (1 + FEEDBACK_LATE_PENALTY) * FEEDBACK_WINDOW_HOURS  # D = 672
+FEEDBACK_UNANSWERED_PENALTY = 1.5  # k: каждые 10 % работ без ответа → +15 % к V_ОС
 
 
 def penalize_feedback_delay(delay_hours):
     if delay_hours <= FEEDBACK_WINDOW_HOURS:
         return delay_hours
-    return FEEDBACK_WINDOW_HOURS + (1 + FEEDBACK_LATE_PENALTY) * (delay_hours - FEEDBACK_WINDOW_HOURS)
+    return min(FEEDBACK_WINDOW_HOURS + (1 + FEEDBACK_LATE_PENALTY) * (delay_hours - FEEDBACK_WINDOW_HOURS),
+               FEEDBACK_MAX_DELAY_HOURS)
 
 
 def get_feedback_delays(df, teacher_name):
     """Для каждой работы (студент, элемент курса) — время до первой оценки преподавателя.
-    Работа без оценки учитывается, только если ожидание уже превысило окно T
-    (t_feedback = момент выгрузки лога). Возвращает DataFrame [t_submit, delay_h, delay_eff_h]."""
-    cols = ['t_submit', 'delay_h', 'delay_eff_h']
+    Работа без оценки учитывается (graded=False), только если ожидание уже превысило окно T;
+    её задержка в среднее не входит — она влияет на V_ОС через долю p.
+    Возвращает DataFrame [t_submit, delay_h, delay_eff_h, graded]."""
+    cols = ['t_submit', 'delay_h', 'delay_eff_h', 'graded']
     data = df.copy()
     data['Время'] = parse_time_column(data['Время'])
     data = data.dropna(subset=['Время'])
@@ -1372,24 +1379,43 @@ def get_feedback_delays(df, teacher_name):
         after = student_grades.loc[student_grades['Время'] >= t_submit, 'Время']
         if not after.empty:
             delay = (after.min() - t_submit).total_seconds() / 3600
+            rows.append((t_submit, delay, penalize_feedback_delay(delay), True))
         else:
             delay = (now - t_submit).total_seconds() / 3600
             if delay <= FEEDBACK_WINDOW_HOURS:
                 continue  # работа ещё в пределах окна — ждём ответа
-        rows.append((t_submit, delay, penalize_feedback_delay(delay)))
+            rows.append((t_submit, delay, np.nan, False))
     return pd.DataFrame(rows, columns=cols)
 
 
-def calculate_feedback_speed(df, teacher_name):
+def feedback_stats_from_delays(delays):
+    """V_ОС по таблице задержек. Возвращает {'v', 'm', 'n0', 'p'} или None, если работ нет."""
+    if delays.empty:
+        return None
+    graded = delays[delays['graded'].astype(bool)]
+    m = int(len(graded))
+    n0 = int(len(delays)) - m
+    p = n0 / (m + n0)
+    if m == 0:
+        v = FEEDBACK_MAX_DELAY_HOURS
+    else:
+        v = min(float(graded['delay_eff_h'].mean()) * (1 + FEEDBACK_UNANSWERED_PENALTY * p),
+                FEEDBACK_MAX_DELAY_HOURS)
+    return {'v': v, 'm': m, 'n0': n0, 'p': p}
+
+
+def calculate_feedback_stats(df, teacher_name):
     try:
-        delays = get_feedback_delays(df, teacher_name)
-        if delays.empty:
-            return None
-        return float(delays['delay_eff_h'].mean())
+        return feedback_stats_from_delays(get_feedback_delays(df, teacher_name))
     except Exception as e:
         ip, ua = get_request_client_info()
-        log_action(teacher_name, "Ошибка", f"calculate_feedback_speed: {str(e)}", error=True, ip=ip, user_agent=ua)
+        log_action(teacher_name, "Ошибка", f"calculate_feedback_stats: {str(e)}", error=True, ip=ip, user_agent=ua)
         return None
+
+
+def calculate_feedback_speed(df, teacher_name):
+    stats = calculate_feedback_stats(df, teacher_name)
+    return stats['v'] if stats else None
 
 
 def count_feedback_events(df, teacher_name):
@@ -1466,8 +1492,8 @@ def get_iopa_level(total_score):
     return "Очень низкий", "#dc3545"
 
 
-# >>> ВАРИАНТ B (per-week): плотность = (feedback_count / actual_weeks) / BASE_PER_WEEK
-def calculate_pedagogical_activity_level(metrics, actual_weeks=18, feedback_count=None):
+# Плотность обратной связи: ρ = min((m / недель) / BASE_PER_WEEK, 1), m — число оценённых работ
+def calculate_pedagogical_activity_level(metrics, actual_weeks=18, graded_works=None):
     weights = {
         'weekly_activity': 0.25, 'session_length': 0.25,
         'course_updates': 0.25, 'feedback_speed': 0.25
@@ -1484,7 +1510,7 @@ def calculate_pedagogical_activity_level(metrics, actual_weeks=18, feedback_coun
         raw_values[metric] = value
 
         if metric == 'feedback_speed':
-            if value is None or not feedback_count:
+            if value is None or not graded_works:
                 normalized_scores[metric] = 0
                 normalized_inputs[metric] = None
                 density_info[metric] = 0.0
@@ -1494,9 +1520,8 @@ def calculate_pedagogical_activity_level(metrics, actual_weeks=18, feedback_coun
                 if value <= threshold:
                     base_score = score
                     break
-            # >>> ВАРИАНТ B (per-week): считаем события в неделю
-            events_per_week = feedback_count / actual_weeks_safe
-            density = min(events_per_week / FEEDBACK_DENSITY_BASE_PER_WEEK, 1.0)
+            works_per_week = graded_works / actual_weeks_safe
+            density = min(works_per_week / FEEDBACK_DENSITY_BASE_PER_WEEK, 1.0)
             density_info[metric] = round(density, 3)
             normalized_scores[metric] = base_score * density
             normalized_inputs[metric] = value
@@ -1540,7 +1565,7 @@ def calculate_pedagogical_activity_level(metrics, actual_weeks=18, feedback_coun
         'weights': weights,
         'density_info': density_info,
         'actual_weeks': actual_weeks_safe,
-        'feedback_count': feedback_count
+        'graded_works': graded_works
     }
 
 
@@ -1582,17 +1607,18 @@ def calculate_weekly_pedagogical_activity(df, teacher_name, selected_course):
 
             course_updates = int(len(week_df[week_df['Название события'].isin(update_events)]))
 
-            fb = week_df[week_df['Название события'].isin(FEEDBACK_EVENTS_LIST)]
-            fb_count_week = len(fb)
-            # работы, отправленные на этой неделе (задержка — со штрафом за выход за окно T)
+            # работы, отправленные на этой неделе: V_ОС и плотность по оценённым работам
             week_delays = feedback_delays[(feedback_delays['t_submit'] >= pd.to_datetime(start_date)) &
                                           (feedback_delays['t_submit'] <= pd.to_datetime(end_date))]
-            has_feedback = not week_delays.empty
+            week_stats = feedback_stats_from_delays(week_delays)
+            has_feedback = week_stats is not None
             feedback_speed = 0.0
             feedback_density = 0.0
+            graded_week = 0
             if has_feedback:
-                feedback_speed = float(week_delays['delay_eff_h'].mean())
-                feedback_density = min(max(fb_count_week, len(week_delays)) / FEEDBACK_DENSITY_BASE_WEEKLY, 1.0)
+                feedback_speed = week_stats['v']
+                graded_week = week_stats['m']
+                feedback_density = min(graded_week / FEEDBACK_DENSITY_BASE_WEEKLY, 1.0)
 
             weekly_thresholds = PEDAGOGICAL_THRESHOLDS
             weights = {'weekly_activity': 0.25, 'session_length': 0.25,
@@ -1636,7 +1662,7 @@ def calculate_weekly_pedagogical_activity(df, teacher_name, selected_course):
                 'course_updates': course_updates,
                 'feedback_speed': round(feedback_speed, 1) if has_feedback else 0,
                 'feedback_speed_display': (
-                    f"{feedback_speed:.1f} (коэф. {feedback_density:.2f}, n={fb_count_week})"
+                    f"{feedback_speed:.1f} (p={week_stats['p']:.2f}, плотн. {feedback_density:.2f}, m={graded_week})"
                     if has_feedback else "—"
                 )
             })
@@ -2724,14 +2750,16 @@ def update_main_graphs(selected_course, selected_week, teacher_name, current_use
             corr_text = "Недостаточно данных"
 
         feedback_count = count_feedback_events(df, teacher_name)
+        fb_stats = calculate_feedback_stats(df, teacher_name)
+        graded_works = fb_stats['m'] if fb_stats else 0
 
         metrics = {
             'weekly_activity': avg_teacher,
             'session_length': avg_sess_len,
             'course_updates': total_updates,
-            'feedback_speed': calculate_feedback_speed(df, teacher_name)
+            'feedback_speed': fb_stats['v'] if fb_stats else None
         }
-        ped = calculate_pedagogical_activity_level(metrics, actual_weeks=actual_weeks, feedback_count=feedback_count)
+        ped = calculate_pedagogical_activity_level(metrics, actual_weeks=actual_weeks, graded_works=graded_works)
 
         ped_level = html.Div([html.H4("Уровень педагогической активности:", style={'margin-bottom': '10px',
                                                                                      'text-align': 'center'}),
@@ -2755,11 +2783,13 @@ def update_main_graphs(selected_course, selected_week, teacher_name, current_use
 
             if m == 'feedback_speed':
                 if raw is None:
-                    raw_display = "— (нет событий)"
+                    raw_display = "— (нет работ)"
                 else:
                     dens = ped['density_info'].get(m, 0)
-                    epw = feedback_count / max(actual_weeks, 1) if feedback_count else 0
-                    raw_display = f"{raw:.2f} ч × коэф. {dens:.2f} ({feedback_count} соб. / {actual_weeks} нед = {epw:.2f}/нед)"
+                    wpw = graded_works / max(actual_weeks, 1)
+                    raw_display = (f"{raw:.2f} ч (без ответа {fb_stats['n0']} из {graded_works + fb_stats['n0']}, "
+                                   f"p = {fb_stats['p']:.2f}); плотность {dens:.2f} "
+                                   f"({graded_works} работ / {actual_weeks} нед = {wpw:.2f}/нед)")
             elif m == 'course_updates':
                 if raw is None or raw == 0:
                     raw_display = f"0 (÷{actual_weeks} нед = 0.00)"
@@ -2818,9 +2848,11 @@ def update_main_graphs(selected_course, selected_week, teacher_name, current_use
                         "Для «Обновлений» очки считаются по среднему числу обновлений в неделю "
                         f"(всего / {actual_weeks} нед). "
                         "Для «Скорости отклика» очки умножаются на коэффициент плотности "
-                        f"min((событий в неделю) / {FEEDBACK_DENSITY_BASE_PER_WEEK:g}, 1). "
-                        f"Скорость отклика — среднее время от отправки работы до оценки; ответ позже "
-                        f"{FEEDBACK_WINDOW_HOURS} ч штрафуется: T + (1 + {FEEDBACK_LATE_PENALTY:g})·(Δt − T). "
+                        f"min((оценённых работ в неделю) / {FEEDBACK_DENSITY_BASE_PER_WEEK:g}, 1). "
+                        f"Скорость отклика V_ОС = min(среднее Δt̃ · (1 + {FEEDBACK_UNANSWERED_PENALTY:g}·p), "
+                        f"{FEEDBACK_MAX_DELAY_HOURS:g} ч): ответ позже {FEEDBACK_WINDOW_HOURS} ч штрафуется "
+                        f"T + (1 + {FEEDBACK_LATE_PENALTY:g})·(Δt − T), не более {FEEDBACK_MAX_DELAY_HOURS:g} ч; "
+                        "p — доля работ без оценки дольше T. "
                         "Уровни: «Очень низкий» < 30 ≤ «Низкий» < 50 ≤ «Средний» < 70 ≤ «Высокий» < 90 ≤ «Очень высокий».",
                         style={'display': 'block', 'color': '#6c757d', 'marginTop': '8px'})
                 ], style={'marginTop': '10px'})
